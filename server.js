@@ -11,7 +11,11 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-producti
 
 // Middleware
 app.use(cors({
-  origin: process.env.FRONTEND_URL,
+  origin: [
+    process.env.FRONTEND_URL,
+    'https://frontend-isadora.onrender.com',
+    'http://localhost:8084'
+  ],
   credentials: true
 }));
 app.use(express.json());
