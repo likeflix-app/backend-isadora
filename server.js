@@ -750,8 +750,8 @@ app.post('/api/talent/applications', authenticateToken, async (req, res) => {
   }
 });
 
-// GET /api/talent/applications - Get all talent applications (admin only)
-app.get('/api/talent/applications', verifyAdmin, async (req, res) => {
+// GET /api/talent/applications - Get all talent applications (authenticated users)
+app.get('/api/talent/applications', authenticateToken, async (req, res) => {
   try {
     const { status } = req.query;
     
@@ -1005,7 +1005,7 @@ app.listen(PORT, () => {
   console.log('   GET    /uploads/* - Serve uploaded files');
   console.log('   === Talent Applications ===');
   console.log('   POST   /api/talent/applications - Submit talent application');
-  console.log('   GET    /api/talent/applications - List all applications (admin)');
+  console.log('   GET    /api/talent/applications - List all applications (authenticated)');
   console.log('   GET    /api/talent/applications/me - Get my application');
   console.log('   GET    /api/talent/applications/:id - Get specific application (admin)');
   console.log('   PATCH  /api/talent/applications/:id/status - Approve/reject (admin)');
