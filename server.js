@@ -235,11 +235,16 @@ app.get('/api/auth/me', authenticateToken, (req, res) => {
 app.get('/api/users', (req, res) => {
   try {
     const verifiedUsers = users.filter(user => user.emailVerified === true);
-    console.log('📊 GET /api/users - Returning', verifiedUsers.length, 'verified users');
+    // Remove password from response
+    const safeUsers = verifiedUsers.map(user => {
+      const { password, ...userWithoutPassword } = user;
+      return userWithoutPassword;
+    });
+    console.log('📊 GET /api/users - Returning', safeUsers.length, 'verified users');
     res.json({
       success: true,
-      data: verifiedUsers,
-      count: verifiedUsers.length
+      data: safeUsers,
+      count: safeUsers.length
     });
   } catch (error) {
     console.error('❌ GET /api/users error:', error);
@@ -275,10 +280,13 @@ app.post('/api/users', (req, res) => {
       existingUser.emailVerified = true;
       existingUser.updatedAt = new Date().toISOString();
       
+      // Remove password from response
+      const { password, ...userWithoutPassword } = existingUser;
+      
       return res.json({
         success: true,
         message: 'User updated successfully',
-        data: existingUser
+        data: userWithoutPassword
       });
     }
     
@@ -297,10 +305,13 @@ app.post('/api/users', (req, res) => {
     
     console.log('✅ User created successfully:', newUser);
     
+    // Remove password from response
+    const { password, ...userWithoutPassword } = newUser;
+    
     res.status(201).json({
       success: true,
       message: 'User created successfully',
-      data: newUser
+      data: userWithoutPassword
     });
     
   } catch (error) {
