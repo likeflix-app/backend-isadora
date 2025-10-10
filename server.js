@@ -127,6 +127,9 @@ let users = [
   }
 ];
 
+// Talent Applications storage
+let talentApplications = [];
+
 // Database helper functions
 async function updateUserRole(userId, role) {
   const userIndex = users.findIndex(u => u.id === userId);
@@ -610,26 +613,406 @@ app.get('/api/admin/media-kits', verifyAdmin, async (req, res) => {
   }
 });
 
+// ==================== TALENT APPLICATION ENDPOINTS ====================
+
+// POST /api/talent/applications - Submit talent application
+app.post('/api/talent/applications', authenticateToken, async (req, res) => {
+  try {
+    const {
+      // Personal Information
+      fullName,
+      birthYear,
+      city,
+      nickname,
+      phone,
+      bio,
+      
+      // Profile Information
+      socialChannels,
+      socialLinks,
+      mediaKitUrls,
+      contentCategories,
+      
+      // Availability Information
+      availableForProducts,
+      shippingAddress,
+      availableForReels,
+      availableNext3Months,
+      availabilityPeriod,
+      
+      // Experience
+      collaboratedAgencies,
+      agenciesList,
+      collaboratedBrands,
+      brandsList,
+      
+      // Fiscal Information
+      hasVAT,
+      paymentMethods,
+      
+      // Terms
+      termsAccepted
+    } = req.body;
+    
+    console.log('📝 POST /api/talent/applications - New application from:', req.user.email);
+    
+    // Validate required fields
+    if (!fullName || !birthYear || !city || !phone || !termsAccepted) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields: fullName, birthYear, city, phone, termsAccepted'
+      });
+    }
+    
+    // Check if user already has a pending or verified application
+    const existingApplication = talentApplications.find(
+      app => app.userId === req.user.id && (app.status === 'pending' || app.status === 'verified')
+    );
+    
+    if (existingApplication) {
+      return res.status(409).json({
+        success: false,
+        message: `You already have a ${existingApplication.status} application`,
+        existingApplication: {
+          id: existingApplication.id,
+          status: existingApplication.status,
+          submittedAt: existingApplication.createdAt
+        }
+      });
+    }
+    
+    // Create new talent application
+    const newApplication = {
+      id: uuidv4(),
+      userId: req.user.id,
+      email: req.user.email,
+      status: 'pending',
+      
+      // Personal Information
+      fullName,
+      birthYear: parseInt(birthYear),
+      city,
+      nickname: nickname || '',
+      phone,
+      bio: bio || '',
+      
+      // Profile Information
+      socialChannels: socialChannels || [],
+      socialLinks: socialLinks || '',
+      mediaKitUrls: mediaKitUrls || [],
+      contentCategories: contentCategories || [],
+      
+      // Availability Information
+      availableForProducts: availableForProducts || 'No',
+      shippingAddress: shippingAddress || '',
+      availableForReels: availableForReels || 'No',
+      availableNext3Months: availableNext3Months || 'No',
+      availabilityPeriod: availabilityPeriod || '',
+      
+      // Experience
+      collaboratedAgencies: collaboratedAgencies || 'No',
+      agenciesList: agenciesList || '',
+      collaboratedBrands: collaboratedBrands || 'No',
+      brandsList: brandsList || '',
+      
+      // Fiscal Information
+      hasVAT: hasVAT || 'No',
+      paymentMethods: paymentMethods || [],
+      
+      // Terms
+      termsAccepted: termsAccepted === true,
+      
+      // System Information
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      reviewedAt: null,
+      reviewedBy: null,
+      reviewNotes: ''
+    };
+    
+    talentApplications.push(newApplication);
+    
+    console.log('✅ Talent application created:', newApplication.id);
+    
+    res.status(201).json({
+      success: true,
+      message: 'Talent application submitted successfully',
+      data: newApplication
+    });
+    
+  } catch (error) {
+    console.error('❌ POST /api/talent/applications error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error submitting application',
+      error: error.message
+    });
+  }
+});
+
+// GET /api/talent/applications - Get all talent applications (admin only)
+app.get('/api/talent/applications', verifyAdmin, async (req, res) => {
+  try {
+    const { status } = req.query;
+    
+    console.log('📋 GET /api/talent/applications - Listing applications (filter:', status || 'all', ')');
+    
+    let filteredApplications = talentApplications;
+    
+    // Filter by status if provided
+    if (status && ['pending', 'verified', 'rejected'].includes(status)) {
+      filteredApplications = talentApplications.filter(app => app.status === status);
+    }
+    
+    // Sort by creation date (newest first)
+    filteredApplications.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    
+    console.log('✅ Found', filteredApplications.length, 'applications');
+    
+    res.json({
+      success: true,
+      data: filteredApplications,
+      count: filteredApplications.length,
+      stats: {
+        total: talentApplications.length,
+        pending: talentApplications.filter(a => a.status === 'pending').length,
+        verified: talentApplications.filter(a => a.status === 'verified').length,
+        rejected: talentApplications.filter(a => a.status === 'rejected').length
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ GET /api/talent/applications error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching applications',
+      error: error.message
+    });
+  }
+});
+
+// GET /api/talent/applications/me - Get current user's application
+app.get('/api/talent/applications/me', authenticateToken, async (req, res) => {
+  try {
+    console.log('👤 GET /api/talent/applications/me - Getting application for user:', req.user.id);
+    
+    const userApplication = talentApplications.find(app => app.userId === req.user.id);
+    
+    if (!userApplication) {
+      return res.status(404).json({
+        success: false,
+        message: 'No application found for this user'
+      });
+    }
+    
+    res.json({
+      success: true,
+      data: userApplication
+    });
+    
+  } catch (error) {
+    console.error('❌ GET /api/talent/applications/me error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching application',
+      error: error.message
+    });
+  }
+});
+
+// GET /api/talent/applications/:id - Get specific talent application (admin only)
+app.get('/api/talent/applications/:id', verifyAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    console.log('🔍 GET /api/talent/applications/:id - Getting application:', id);
+    
+    const application = talentApplications.find(app => app.id === id);
+    
+    if (!application) {
+      return res.status(404).json({
+        success: false,
+        message: 'Application not found'
+      });
+    }
+    
+    res.json({
+      success: true,
+      data: application
+    });
+    
+  } catch (error) {
+    console.error('❌ GET /api/talent/applications/:id error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching application',
+      error: error.message
+    });
+  }
+});
+
+// PATCH /api/talent/applications/:id/status - Update application status (admin only)
+app.patch('/api/talent/applications/:id/status', verifyAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, reviewNotes } = req.body;
+    
+    console.log('🔄 PATCH /api/talent/applications/:id/status - Updating application:', id, 'to:', status);
+    
+    // Validate status
+    if (!['verified', 'rejected'].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid status. Must be "verified" or "rejected"'
+      });
+    }
+    
+    const applicationIndex = talentApplications.findIndex(app => app.id === id);
+    
+    if (applicationIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        message: 'Application not found'
+      });
+    }
+    
+    // Update application
+    talentApplications[applicationIndex].status = status;
+    talentApplications[applicationIndex].reviewedAt = new Date().toISOString();
+    talentApplications[applicationIndex].reviewedBy = req.user.id;
+    talentApplications[applicationIndex].reviewNotes = reviewNotes || '';
+    talentApplications[applicationIndex].updatedAt = new Date().toISOString();
+    
+    const updatedApplication = talentApplications[applicationIndex];
+    
+    console.log('✅ Application status updated:', updatedApplication.id, '->', status);
+    
+    res.json({
+      success: true,
+      message: `Application ${status} successfully`,
+      data: updatedApplication
+    });
+    
+  } catch (error) {
+    console.error('❌ PATCH /api/talent/applications/:id/status error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error updating application status',
+      error: error.message
+    });
+  }
+});
+
+// DELETE /api/talent/applications/:id - Delete talent application (admin only)
+app.delete('/api/talent/applications/:id', verifyAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    console.log('🗑️ DELETE /api/talent/applications/:id - Deleting application:', id);
+    
+    const applicationIndex = talentApplications.findIndex(app => app.id === id);
+    
+    if (applicationIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        message: 'Application not found'
+      });
+    }
+    
+    const deletedApplication = talentApplications[applicationIndex];
+    talentApplications.splice(applicationIndex, 1);
+    
+    console.log('✅ Application deleted:', id);
+    
+    res.json({
+      success: true,
+      message: 'Application deleted successfully',
+      deletedApplication: {
+        id: deletedApplication.id,
+        fullName: deletedApplication.fullName,
+        status: deletedApplication.status
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ DELETE /api/talent/applications/:id error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error deleting application',
+      error: error.message
+    });
+  }
+});
+
+// GET /api/talent/applications/stats - Get talent application statistics (admin only)
+app.get('/api/talent/stats', verifyAdmin, async (req, res) => {
+  try {
+    console.log('📊 GET /api/talent/stats - Getting statistics');
+    
+    const stats = {
+      totalApplications: talentApplications.length,
+      pending: talentApplications.filter(a => a.status === 'pending').length,
+      verified: talentApplications.filter(a => a.status === 'verified').length,
+      rejected: talentApplications.filter(a => a.status === 'rejected').length,
+      recentApplications: talentApplications
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+        .slice(0, 5)
+        .map(app => ({
+          id: app.id,
+          fullName: app.fullName,
+          status: app.status,
+          createdAt: app.createdAt
+        }))
+    };
+    
+    res.json({
+      success: true,
+      data: stats
+    });
+    
+  } catch (error) {
+    console.error('❌ GET /api/talent/stats error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching statistics',
+      error: error.message
+    });
+  }
+});
+
 // Start server
 app.listen(PORT, () => {
   console.log('🚀 Talento Backend Server running on port', PORT);
   console.log('🌐 Frontend URL:', process.env.FRONTEND_URL);
   console.log('📊 Initial users:', users.length);
+  console.log('📝 Talent applications:', talentApplications.length);
   console.log('📂 Upload directory:', uploadDir);
   console.log('🔗 API Endpoints:');
+  console.log('   === Authentication ===');
   console.log('   POST   /api/auth/login - User login');
   console.log('   POST   /api/auth/register - User registration');
   console.log('   GET    /api/auth/me - Get current user info');
+  console.log('   === User Management ===');
   console.log('   GET    /api/users - Get all verified users');
   console.log('   POST   /api/users - Create new verified user');
   console.log('   PATCH  /api/users/:userId/role - Update user role');
   console.log('   DELETE /api/users/:userId - Delete user');
   console.log('   GET    /api/users/stats - Get user statistics');
+  console.log('   === File Upload ===');
   console.log('   POST   /api/upload/media-kit - Upload talent photos');
   console.log('   DELETE /api/upload/media-kit/:filename - Delete file');
   console.log('   GET    /api/admin/media-kits - List all files (admin)');
-  console.log('   GET    /api/health - Health check');
   console.log('   GET    /uploads/* - Serve uploaded files');
+  console.log('   === Talent Applications ===');
+  console.log('   POST   /api/talent/applications - Submit talent application');
+  console.log('   GET    /api/talent/applications - List all applications (admin)');
+  console.log('   GET    /api/talent/applications/me - Get my application');
+  console.log('   GET    /api/talent/applications/:id - Get specific application (admin)');
+  console.log('   PATCH  /api/talent/applications/:id/status - Approve/reject (admin)');
+  console.log('   DELETE /api/talent/applications/:id - Delete application (admin)');
+  console.log('   GET    /api/talent/stats - Get talent statistics (admin)');
+  console.log('   === System ===');
+  console.log('   GET    /api/health - Health check');
 });
 
 
