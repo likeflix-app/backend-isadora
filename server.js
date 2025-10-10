@@ -3,6 +3,9 @@ const cors = require('cors');
 const { v4: uuidv4 } = require('uuid');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs-extra');
 require('dotenv').config();
 
 const app = express();
@@ -20,6 +23,47 @@ app.use(cors({
 }));
 app.use(express.json());
 
+// File Upload Configuration
+// Create uploads directory if it doesn't exist
+const uploadDir = path.join(__dirname, 'uploads', 'media-kits');
+fs.ensureDirSync(uploadDir);
+
+// Multer configuration for Render file storage
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    // Generate unique filename with timestamp
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const ext = path.extname(file.originalname);
+    cb(null, `talent-${uniqueSuffix}${ext}`);
+  }
+});
+
+const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limit
+    files: 10 // Max 10 files per request
+  },
+  fileFilter: (req, file, cb) => {
+    // Only allow images and PDFs
+    const allowedTypes = /jpeg|jpg|png|gif|pdf|webp/;
+    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+    const mimetype = allowedTypes.test(file.mimetype);
+    
+    if (mimetype && extname) {
+      return cb(null, true);
+    } else {
+      cb(new Error('Only images (JPEG, PNG, GIF, WebP) and PDFs are allowed'));
+    }
+  }
+});
+
+// Serve uploaded files statically
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
 // Authentication middleware
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
@@ -33,6 +77,29 @@ const authenticateToken = (req, res, next) => {
     if (err) {
       return res.status(403).json({ success: false, message: 'Invalid token' });
     }
+    req.user = user;
+    next();
+  });
+};
+
+// Admin verification middleware
+const verifyAdmin = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    return res.status(401).json({ success: false, message: 'Access token required' });
+  }
+
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) {
+      return res.status(403).json({ success: false, message: 'Invalid token' });
+    }
+    
+    if (user.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Admin access required' });
+    }
+    
     req.user = user;
     next();
   });
@@ -454,21 +521,115 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// ==================== FILE UPLOAD ENDPOINTS ====================
+
+// POST /api/upload/media-kit - Upload talent photos
+app.post('/api/upload/media-kit', 
+  upload.array('mediaKit', 10), 
+  (req, res) => {
+    try {
+      if (!req.files || req.files.length === 0) {
+        return res.status(400).json({ error: 'No files uploaded' });
+      }
+
+      console.log('📤 POST /api/upload/media-kit - Uploaded', req.files.length, 'files');
+
+      // Generate URLs for uploaded files
+      const fileUrls = req.files.map(file => {
+        return `${req.protocol}://${req.get('host')}/uploads/media-kits/${file.filename}`;
+      });
+
+      res.json({
+        success: true,
+        files: req.files.map(file => ({
+          filename: file.filename,
+          originalName: file.originalname,
+          size: file.size,
+          url: `${req.protocol}://${req.get('host')}/uploads/media-kits/${file.filename}`
+        })),
+        urls: fileUrls
+      });
+    } catch (error) {
+      console.error('❌ Upload error:', error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
+
+// DELETE /api/upload/media-kit/:filename - Delete uploaded file
+app.delete('/api/upload/media-kit/:filename', (req, res) => {
+  try {
+    const filename = req.params.filename;
+    const filePath = path.join(uploadDir, filename);
+    
+    console.log('🗑️ DELETE /api/upload/media-kit/:filename - Deleting file:', filename);
+    
+    // Check if file exists
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+      console.log('✅ File deleted successfully:', filename);
+      res.json({ success: true, message: 'File deleted successfully' });
+    } else {
+      console.log('⚠️ File not found:', filename);
+      res.status(404).json({ error: 'File not found' });
+    }
+  } catch (error) {
+    console.error('❌ Delete error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/admin/media-kits - List all uploaded files (admin only)
+app.get('/api/admin/media-kits', verifyAdmin, async (req, res) => {
+  try {
+    console.log('📂 GET /api/admin/media-kits - Listing all files');
+    
+    const files = fs.readdirSync(uploadDir);
+    const fileList = files.map(filename => {
+      const filePath = path.join(uploadDir, filename);
+      const stats = fs.statSync(filePath);
+      
+      return {
+        filename,
+        url: `${req.protocol}://${req.get('host')}/uploads/media-kits/${filename}`,
+        size: stats.size,
+        uploadedAt: stats.birthtime
+      };
+    });
+    
+    console.log('✅ Found', fileList.length, 'files');
+    
+    res.json({
+      success: true,
+      data: fileList,
+      count: fileList.length
+    });
+  } catch (error) {
+    console.error('❌ Error listing files:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Start server
 app.listen(PORT, () => {
   console.log('🚀 Talento Backend Server running on port', PORT);
   console.log('🌐 Frontend URL:', process.env.FRONTEND_URL);
   console.log('📊 Initial users:', users.length);
+  console.log('📂 Upload directory:', uploadDir);
   console.log('🔗 API Endpoints:');
-  console.log('   POST  /api/auth/login - User login');
-  console.log('   POST  /api/auth/register - User registration');
-  console.log('   GET   /api/auth/me - Get current user info');
-  console.log('   GET   /api/users - Get all verified users');
-  console.log('   POST  /api/users - Create new verified user');
-  console.log('   PATCH /api/users/:userId/role - Update user role');
+  console.log('   POST   /api/auth/login - User login');
+  console.log('   POST   /api/auth/register - User registration');
+  console.log('   GET    /api/auth/me - Get current user info');
+  console.log('   GET    /api/users - Get all verified users');
+  console.log('   POST   /api/users - Create new verified user');
+  console.log('   PATCH  /api/users/:userId/role - Update user role');
   console.log('   DELETE /api/users/:userId - Delete user');
-  console.log('   GET   /api/users/stats - Get user statistics');
-  console.log('   GET   /api/health - Health check');
+  console.log('   GET    /api/users/stats - Get user statistics');
+  console.log('   POST   /api/upload/media-kit - Upload talent photos');
+  console.log('   DELETE /api/upload/media-kit/:filename - Delete file');
+  console.log('   GET    /api/admin/media-kits - List all files (admin)');
+  console.log('   GET    /api/health - Health check');
+  console.log('   GET    /uploads/* - Serve uploaded files');
 });
 
 
