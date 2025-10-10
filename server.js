@@ -60,6 +60,33 @@ let users = [
   }
 ];
 
+// Database helper functions
+async function updateUserRole(userId, role) {
+  const userIndex = users.findIndex(u => u.id === userId);
+  
+  if (userIndex === -1) {
+    throw new Error('User not found');
+  }
+  
+  users[userIndex].role = role;
+  users[userIndex].updatedAt = new Date().toISOString();
+  
+  // Return user without password
+  const { password, ...userWithoutPassword } = users[userIndex];
+  return userWithoutPassword;
+}
+
+async function deleteUser(userId) {
+  const userIndex = users.findIndex(u => u.id === userId);
+  
+  if (userIndex === -1) {
+    throw new Error('User not found');
+  }
+  
+  users.splice(userIndex, 1);
+  return { deleted: true, userId };
+}
+
 // Routes
 
 // POST /api/auth/login - User login
@@ -324,6 +351,68 @@ app.post('/api/users', (req, res) => {
   }
 });
 
+// PATCH /api/users/:userId/role - Update user role
+app.patch('/api/users/:userId/role', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { role } = req.body;
+    
+    console.log('🔄 PATCH /api/users/:userId/role - Updating role for user:', userId, 'to:', role);
+    
+    // Validate role
+    if (!['user', 'admin'].includes(role)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid role. Must be "user" or "admin"'
+      });
+    }
+    
+    // Update user role in database
+    const updatedUser = await updateUserRole(userId, role);
+    
+    console.log('✅ User role updated successfully:', updatedUser.email);
+    
+    res.json({
+      success: true,
+      data: updatedUser,
+      message: 'User role updated successfully'
+    });
+  } catch (error) {
+    console.error('❌ PATCH /api/users/:userId/role error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update user role',
+      error: error.message
+    });
+  }
+});
+
+// DELETE /api/users/:userId - Delete user
+app.delete('/api/users/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    console.log('🗑️ DELETE /api/users/:userId - Deleting user:', userId);
+    
+    // Delete user from database
+    await deleteUser(userId);
+    
+    console.log('✅ User deleted successfully:', userId);
+    
+    res.json({
+      success: true,
+      message: 'User deleted successfully'
+    });
+  } catch (error) {
+    console.error('❌ DELETE /api/users/:userId error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to delete user',
+      error: error.message
+    });
+  }
+});
+
 // GET /api/users/stats - Get user statistics
 app.get('/api/users/stats', (req, res) => {
   try {
@@ -371,13 +460,15 @@ app.listen(PORT, () => {
   console.log('🌐 Frontend URL:', process.env.FRONTEND_URL);
   console.log('📊 Initial users:', users.length);
   console.log('🔗 API Endpoints:');
-  console.log('   POST /api/auth/login - User login');
-  console.log('   POST /api/auth/register - User registration');
-  console.log('   GET  /api/auth/me - Get current user info');
-  console.log('   GET  /api/users - Get all verified users');
-  console.log('   POST /api/users - Create new verified user');
-  console.log('   GET  /api/users/stats - Get user statistics');
-  console.log('   GET  /api/health - Health check');
+  console.log('   POST  /api/auth/login - User login');
+  console.log('   POST  /api/auth/register - User registration');
+  console.log('   GET   /api/auth/me - Get current user info');
+  console.log('   GET   /api/users - Get all verified users');
+  console.log('   POST  /api/users - Create new verified user');
+  console.log('   PATCH /api/users/:userId/role - Update user role');
+  console.log('   DELETE /api/users/:userId - Delete user');
+  console.log('   GET   /api/users/stats - Get user statistics');
+  console.log('   GET   /api/health - Health check');
 });
 
 
