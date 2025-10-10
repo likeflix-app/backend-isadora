@@ -1,0 +1,384 @@
+const pgp = require('pg-promise')();
+require('dotenv').config();
+
+// Database connection configuration
+const connectionConfig = {
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+};
+
+const db = pgp(connectionConfig);
+
+// Initialize database tables
+async function initializeDatabase() {
+  try {
+    console.log('🔄 Initializing database...');
+    
+    // Create users table
+    await db.none(`
+      CREATE TABLE IF NOT EXISTS users (
+        id VARCHAR(255) PRIMARY KEY,
+        email VARCHAR(255) UNIQUE NOT NULL,
+        name VARCHAR(255) NOT NULL,
+        password VARCHAR(255),
+        role VARCHAR(50) DEFAULT 'user',
+        mobile VARCHAR(50),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        email_verified BOOLEAN DEFAULT true
+      )
+    `);
+    
+    // Create talent_applications table
+    await db.none(`
+      CREATE TABLE IF NOT EXISTS talent_applications (
+        id VARCHAR(255) PRIMARY KEY,
+        user_id VARCHAR(255) REFERENCES users(id) ON DELETE CASCADE,
+        email VARCHAR(255) NOT NULL,
+        status VARCHAR(50) DEFAULT 'pending',
+        
+        -- Personal Information
+        full_name VARCHAR(255) NOT NULL,
+        birth_year INTEGER NOT NULL,
+        city VARCHAR(255) NOT NULL,
+        nickname VARCHAR(255),
+        phone VARCHAR(50) NOT NULL,
+        bio TEXT,
+        
+        -- Profile Information
+        social_channels JSONB DEFAULT '[]',
+        social_links TEXT,
+        media_kit_urls JSONB DEFAULT '[]',
+        content_categories JSONB DEFAULT '[]',
+        
+        -- Availability Information
+        available_for_products VARCHAR(50) DEFAULT 'No',
+        shipping_address TEXT,
+        available_for_reels VARCHAR(50) DEFAULT 'No',
+        available_next_3_months VARCHAR(50) DEFAULT 'No',
+        availability_period TEXT,
+        
+        -- Experience
+        collaborated_agencies VARCHAR(50) DEFAULT 'No',
+        agencies_list TEXT,
+        collaborated_brands VARCHAR(50) DEFAULT 'No',
+        brands_list TEXT,
+        
+        -- Fiscal Information
+        has_vat VARCHAR(50) DEFAULT 'No',
+        payment_methods JSONB DEFAULT '[]',
+        
+        -- Terms
+        terms_accepted BOOLEAN DEFAULT false,
+        
+        -- System Information
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        reviewed_at TIMESTAMP,
+        reviewed_by VARCHAR(255),
+        review_notes TEXT
+      )
+    `);
+    
+    // Create indexes for better performance
+    await db.none('CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)');
+    await db.none('CREATE INDEX IF NOT EXISTS idx_users_role ON users(role)');
+    await db.none('CREATE INDEX IF NOT EXISTS idx_talent_applications_user_id ON talent_applications(user_id)');
+    await db.none('CREATE INDEX IF NOT EXISTS idx_talent_applications_status ON talent_applications(status)');
+    
+    console.log('✅ Database tables created/verified successfully');
+    
+    // Check if demo users exist, if not create them
+    await seedDemoUsers();
+    
+  } catch (error) {
+    console.error('❌ Database initialization error:', error);
+    throw error;
+  }
+}
+
+// Seed demo users if they don't exist
+async function seedDemoUsers() {
+  try {
+    const bcrypt = require('bcryptjs');
+    const { v4: uuidv4 } = require('uuid');
+    
+    // Check if demo users exist
+    const existingUsers = await db.any('SELECT id FROM users LIMIT 1');
+    
+    if (existingUsers.length === 0) {
+      console.log('📝 Seeding demo users...');
+      
+      const hashedPassword = await bcrypt.hash('password', 10);
+      
+      const demoUsers = [
+        {
+          id: uuidv4(),
+          email: 'demo@example.com',
+          name: 'Demo User',
+          password: hashedPassword,
+          role: 'user',
+          email_verified: true
+        },
+        {
+          id: uuidv4(),
+          email: 'admin@talento.com',
+          name: 'Admin User',
+          password: hashedPassword,
+          role: 'admin',
+          email_verified: true
+        }
+      ];
+      
+      for (const user of demoUsers) {
+        await db.none(
+          'INSERT INTO users(id, email, name, password, role, email_verified) VALUES($1, $2, $3, $4, $5, $6)',
+          [user.id, user.email, user.name, user.password, user.role, user.email_verified]
+        );
+      }
+      
+      console.log('✅ Demo users created successfully');
+      console.log('   📧 demo@example.com / password: password');
+      console.log('   📧 admin@talento.com / password: password');
+    }
+  } catch (error) {
+    console.error('⚠️ Error seeding demo users:', error.message);
+  }
+}
+
+// Database helper functions for users
+const userQueries = {
+  // Find user by email
+  findByEmail: async (email) => {
+    return await db.oneOrNone('SELECT * FROM users WHERE email = $1', [email]);
+  },
+  
+  // Find user by ID
+  findById: async (id) => {
+    return await db.oneOrNone('SELECT * FROM users WHERE id = $1', [id]);
+  },
+  
+  // Get all verified users
+  getAllVerified: async () => {
+    return await db.any('SELECT * FROM users WHERE email_verified = true ORDER BY created_at DESC');
+  },
+  
+  // Create new user
+  create: async (userData) => {
+    const { id, email, name, password, role, mobile, emailVerified } = userData;
+    return await db.one(
+      `INSERT INTO users(id, email, name, password, role, mobile, email_verified, created_at, updated_at)
+       VALUES($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+       RETURNING *`,
+      [id, email, name, password || null, role || 'user', mobile || '', emailVerified !== false]
+    );
+  },
+  
+  // Update user
+  update: async (id, updates) => {
+    const fields = [];
+    const values = [];
+    let paramIndex = 1;
+    
+    Object.keys(updates).forEach(key => {
+      fields.push(`${key} = $${paramIndex}`);
+      values.push(updates[key]);
+      paramIndex++;
+    });
+    
+    fields.push(`updated_at = CURRENT_TIMESTAMP`);
+    values.push(id);
+    
+    const query = `UPDATE users SET ${fields.join(', ')} WHERE id = $${paramIndex} RETURNING *`;
+    return await db.one(query, values);
+  },
+  
+  // Update user role
+  updateRole: async (id, role) => {
+    return await db.one(
+      'UPDATE users SET role = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *',
+      [role, id]
+    );
+  },
+  
+  // Delete user
+  delete: async (id) => {
+    await db.none('DELETE FROM users WHERE id = $1', [id]);
+    return { deleted: true, userId: id };
+  },
+  
+  // Get user statistics
+  getStats: async () => {
+    const stats = await db.one(`
+      SELECT 
+        COUNT(*) as total_users,
+        COUNT(CASE WHEN email_verified = true THEN 1 END) as verified_users,
+        COUNT(CASE WHEN role = 'admin' THEN 1 END) as admin_users,
+        COUNT(CASE WHEN role = 'user' THEN 1 END) as regular_users
+      FROM users
+    `);
+    return {
+      totalUsers: parseInt(stats.total_users),
+      verifiedUsers: parseInt(stats.verified_users),
+      adminUsers: parseInt(stats.admin_users),
+      regularUsers: parseInt(stats.regular_users)
+    };
+  }
+};
+
+// Database helper functions for talent applications
+const talentQueries = {
+  // Create new application
+  create: async (applicationData) => {
+    const {
+      id, userId, email, status,
+      fullName, birthYear, city, nickname, phone, bio,
+      socialChannels, socialLinks, mediaKitUrls, contentCategories,
+      availableForProducts, shippingAddress, availableForReels, availableNext3Months, availabilityPeriod,
+      collaboratedAgencies, agenciesList, collaboratedBrands, brandsList,
+      hasVAT, paymentMethods,
+      termsAccepted
+    } = applicationData;
+    
+    return await db.one(
+      `INSERT INTO talent_applications(
+        id, user_id, email, status,
+        full_name, birth_year, city, nickname, phone, bio,
+        social_channels, social_links, media_kit_urls, content_categories,
+        available_for_products, shipping_address, available_for_reels, available_next_3_months, availability_period,
+        collaborated_agencies, agencies_list, collaborated_brands, brands_list,
+        has_vat, payment_methods,
+        terms_accepted,
+        created_at, updated_at
+      ) VALUES(
+        $1, $2, $3, $4,
+        $5, $6, $7, $8, $9, $10,
+        $11, $12, $13, $14,
+        $15, $16, $17, $18, $19,
+        $20, $21, $22, $23,
+        $24, $25,
+        $26,
+        CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+      ) RETURNING *`,
+      [
+        id, userId, email, status || 'pending',
+        fullName, birthYear, city, nickname || '', phone, bio || '',
+        JSON.stringify(socialChannels || []), socialLinks || '', JSON.stringify(mediaKitUrls || []), JSON.stringify(contentCategories || []),
+        availableForProducts || 'No', shippingAddress || '', availableForReels || 'No', availableNext3Months || 'No', availabilityPeriod || '',
+        collaboratedAgencies || 'No', agenciesList || '', collaboratedBrands || 'No', brandsList || '',
+        hasVAT || 'No', JSON.stringify(paymentMethods || []),
+        termsAccepted === true
+      ]
+    );
+  },
+  
+  // Get all applications
+  getAll: async (statusFilter = null) => {
+    if (statusFilter) {
+      return await db.any(
+        'SELECT * FROM talent_applications WHERE status = $1 ORDER BY created_at DESC',
+        [statusFilter]
+      );
+    }
+    return await db.any('SELECT * FROM talent_applications ORDER BY created_at DESC');
+  },
+  
+  // Find application by ID
+  findById: async (id) => {
+    return await db.oneOrNone('SELECT * FROM talent_applications WHERE id = $1', [id]);
+  },
+  
+  // Find application by user ID
+  findByUserId: async (userId) => {
+    return await db.oneOrNone('SELECT * FROM talent_applications WHERE user_id = $1', [userId]);
+  },
+  
+  // Check if user has pending or verified application
+  findActiveByUserId: async (userId) => {
+    return await db.oneOrNone(
+      "SELECT * FROM talent_applications WHERE user_id = $1 AND status IN ('pending', 'verified')",
+      [userId]
+    );
+  },
+  
+  // Update application status
+  updateStatus: async (id, status, reviewedBy, reviewNotes) => {
+    return await db.one(
+      `UPDATE talent_applications 
+       SET status = $1, reviewed_by = $2, review_notes = $3, reviewed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $4 RETURNING *`,
+      [status, reviewedBy, reviewNotes || '', id]
+    );
+  },
+  
+  // Delete application
+  delete: async (id) => {
+    const app = await db.oneOrNone('SELECT id, full_name, status FROM talent_applications WHERE id = $1', [id]);
+    if (!app) return null;
+    
+    await db.none('DELETE FROM talent_applications WHERE id = $1', [id]);
+    return app;
+  },
+  
+  // Get statistics
+  getStats: async () => {
+    const stats = await db.one(`
+      SELECT 
+        COUNT(*) as total_applications,
+        COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending,
+        COUNT(CASE WHEN status = 'verified' THEN 1 END) as verified,
+        COUNT(CASE WHEN status = 'rejected' THEN 1 END) as rejected
+      FROM talent_applications
+    `);
+    
+    const recentApplications = await db.any(`
+      SELECT id, full_name, status, created_at
+      FROM talent_applications
+      ORDER BY created_at DESC
+      LIMIT 5
+    `);
+    
+    return {
+      totalApplications: parseInt(stats.total_applications),
+      pending: parseInt(stats.pending),
+      verified: parseInt(stats.verified),
+      rejected: parseInt(stats.rejected),
+      recentApplications
+    };
+  }
+};
+
+// Helper to convert snake_case to camelCase for API responses
+function toCamelCase(obj) {
+  if (!obj || typeof obj !== 'object') return obj;
+  
+  if (Array.isArray(obj)) {
+    return obj.map(item => toCamelCase(item));
+  }
+  
+  const camelObj = {};
+  for (const key in obj) {
+    const camelKey = key.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+    
+    // Parse JSON fields
+    if (typeof obj[key] === 'string' && (key.includes('channels') || key.includes('urls') || key.includes('categories') || key.includes('methods'))) {
+      try {
+        camelObj[camelKey] = JSON.parse(obj[key]);
+      } catch {
+        camelObj[camelKey] = obj[key];
+      }
+    } else {
+      camelObj[camelKey] = obj[key];
+    }
+  }
+  return camelObj;
+}
+
+module.exports = {
+  db,
+  initializeDatabase,
+  userQueries,
+  talentQueries,
+  toCamelCase
+};
+

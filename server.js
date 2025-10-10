@@ -8,6 +8,9 @@ const path = require('path');
 const fs = require('fs-extra');
 require('dotenv').config();
 
+// Database
+const { db, initializeDatabase, userQueries, talentQueries, toCamelCase } = require('./db');
+
 const app = express();
 const PORT = process.env.PORT || 3001;
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
@@ -105,57 +108,8 @@ const verifyAdmin = (req, res, next) => {
   });
 };
 
-// In-memory storage (replace with database later)
-let users = [
-  {
-    id: '1',
-    email: 'demo@example.com',
-    name: 'Demo User',
-    password: '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', // password: "password"
-    role: 'user',
-    createdAt: new Date().toISOString(),
-    emailVerified: true
-  },
-  {
-    id: '2',
-    email: 'admin@talento.com',
-    name: 'Admin User',
-    password: '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', // password: "password"
-    role: 'admin',
-    createdAt: new Date().toISOString(),
-    emailVerified: true
-  }
-];
-
-// Talent Applications storage
-let talentApplications = [];
-
-// Database helper functions
-async function updateUserRole(userId, role) {
-  const userIndex = users.findIndex(u => u.id === userId);
-  
-  if (userIndex === -1) {
-    throw new Error('User not found');
-  }
-  
-  users[userIndex].role = role;
-  users[userIndex].updatedAt = new Date().toISOString();
-  
-  // Return user without password
-  const { password, ...userWithoutPassword } = users[userIndex];
-  return userWithoutPassword;
-}
-
-async function deleteUser(userId) {
-  const userIndex = users.findIndex(u => u.id === userId);
-  
-  if (userIndex === -1) {
-    throw new Error('User not found');
-  }
-  
-  users.splice(userIndex, 1);
-  return { deleted: true, userId };
-}
+// Database is now initialized on server start (see bottom of file)
+// All data is persisted in PostgreSQL
 
 // Routes
 
@@ -175,7 +129,7 @@ app.post('/api/auth/login', async (req, res) => {
     }
     
     // Find user
-    const user = users.find(u => u.email === email);
+    const user = await userQueries.findByEmail(email);
     if (!user) {
       return res.status(401).json({
         success: false,
@@ -215,7 +169,7 @@ app.post('/api/auth/login', async (req, res) => {
           email: user.email,
           name: user.name,
           role: user.role,
-          emailVerified: user.emailVerified
+          emailVerified: user.email_verified
         }
       }
     });
@@ -246,7 +200,7 @@ app.post('/api/auth/register', async (req, res) => {
     }
     
     // Check if user already exists
-    const existingUser = users.find(user => user.email === email);
+    const existingUser = await userQueries.findByEmail(email);
     if (existingUser) {
       return res.status(409).json({
         success: false,
@@ -258,18 +212,15 @@ app.post('/api/auth/register', async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
     
     // Create new user
-    const newUser = {
+    const newUser = await userQueries.create({
       id: uuidv4(),
       email,
       name,
       password: hashedPassword,
       role: 'user',
       mobile: mobile || '',
-      createdAt: new Date().toISOString(),
       emailVerified: true
-    };
-    
-    users.push(newUser);
+    });
     
     console.log('✅ User registered successfully:', newUser.email);
     
@@ -282,7 +233,7 @@ app.post('/api/auth/register', async (req, res) => {
           email: newUser.email,
           name: newUser.name,
           role: newUser.role,
-          emailVerified: newUser.emailVerified
+          emailVerified: newUser.email_verified
         }
       }
     });
@@ -298,9 +249,9 @@ app.post('/api/auth/register', async (req, res) => {
 });
 
 // GET /api/auth/me - Get current user info
-app.get('/api/auth/me', authenticateToken, (req, res) => {
+app.get('/api/auth/me', authenticateToken, async (req, res) => {
   try {
-    const user = users.find(u => u.id === req.user.id);
+    const user = await userQueries.findById(req.user.id);
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -315,7 +266,7 @@ app.get('/api/auth/me', authenticateToken, (req, res) => {
         email: user.email,
         name: user.name,
         role: user.role,
-        emailVerified: user.emailVerified
+        emailVerified: user.email_verified
       }
     });
   } catch (error) {
@@ -329,13 +280,13 @@ app.get('/api/auth/me', authenticateToken, (req, res) => {
 });
 
 // GET /api/users - Get all verified users
-app.get('/api/users', (req, res) => {
+app.get('/api/users', async (req, res) => {
   try {
-    const verifiedUsers = users.filter(user => user.emailVerified === true);
-    // Remove password from response
+    const verifiedUsers = await userQueries.getAllVerified();
+    // Remove password from response and convert to camelCase
     const safeUsers = verifiedUsers.map(user => {
       const { password, ...userWithoutPassword } = user;
-      return userWithoutPassword;
+      return toCamelCase(userWithoutPassword);
     });
     console.log('📊 GET /api/users - Returning', safeUsers.length, 'verified users');
     res.json({
@@ -354,7 +305,7 @@ app.get('/api/users', (req, res) => {
 });
 
 // POST /api/users - Create new verified user
-app.post('/api/users', (req, res) => {
+app.post('/api/users', async (req, res) => {
   try {
     const { email, name, mobile } = req.body;
     
@@ -369,38 +320,36 @@ app.post('/api/users', (req, res) => {
     }
     
     // Check if user already exists
-    const existingUser = users.find(user => user.email === email);
+    const existingUser = await userQueries.findByEmail(email);
     if (existingUser) {
       console.log('⚠️ User already exists, updating:', email);
-      existingUser.name = name;
-      existingUser.mobile = mobile || '';
-      existingUser.emailVerified = true;
-      existingUser.updatedAt = new Date().toISOString();
+      const updatedUser = await userQueries.update(existingUser.id, {
+        name,
+        mobile: mobile || '',
+        email_verified: true
+      });
       
       // Remove password from response
-      const { password, ...userWithoutPassword } = existingUser;
+      const { password, ...userWithoutPassword } = updatedUser;
       
       return res.json({
         success: true,
         message: 'User updated successfully',
-        data: userWithoutPassword
+        data: toCamelCase(userWithoutPassword)
       });
     }
     
     // Create new user
-    const newUser = {
+    const newUser = await userQueries.create({
       id: uuidv4(),
       email,
       name,
       role: 'user',
       mobile: mobile || '',
-      createdAt: new Date().toISOString(),
       emailVerified: true
-    };
+    });
     
-    users.push(newUser);
-    
-    console.log('✅ User created successfully:', newUser);
+    console.log('✅ User created successfully:', newUser.email);
     
     // Remove password from response
     const { password, ...userWithoutPassword } = newUser;
@@ -408,7 +357,7 @@ app.post('/api/users', (req, res) => {
     res.status(201).json({
       success: true,
       message: 'User created successfully',
-      data: userWithoutPassword
+      data: toCamelCase(userWithoutPassword)
     });
     
   } catch (error) {
@@ -438,13 +387,22 @@ app.patch('/api/users/:userId/role', async (req, res) => {
     }
     
     // Update user role in database
-    const updatedUser = await updateUserRole(userId, role);
+    const updatedUser = await userQueries.updateRole(userId, role);
+    
+    if (!updatedUser) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
     
     console.log('✅ User role updated successfully:', updatedUser.email);
     
+    const { password, ...userWithoutPassword } = updatedUser;
+    
     res.json({
       success: true,
-      data: updatedUser,
+      data: toCamelCase(userWithoutPassword),
       message: 'User role updated successfully'
     });
   } catch (error) {
@@ -465,7 +423,7 @@ app.delete('/api/users/:userId', async (req, res) => {
     console.log('🗑️ DELETE /api/users/:userId - Deleting user:', userId);
     
     // Delete user from database
-    await deleteUser(userId);
+    await userQueries.delete(userId);
     
     console.log('✅ User deleted successfully:', userId);
     
@@ -484,19 +442,9 @@ app.delete('/api/users/:userId', async (req, res) => {
 });
 
 // GET /api/users/stats - Get user statistics
-app.get('/api/users/stats', (req, res) => {
+app.get('/api/users/stats', async (req, res) => {
   try {
-    const allUsers = users;
-    const verifiedUsers = users.filter(user => user.emailVerified === true);
-    const adminUsers = verifiedUsers.filter(user => user.role === 'admin');
-    const regularUsers = verifiedUsers.filter(user => user.role === 'user');
-    
-    const stats = {
-      totalUsers: allUsers.length,
-      verifiedUsers: verifiedUsers.length,
-      adminUsers: adminUsers.length,
-      regularUsers: regularUsers.length
-    };
+    const stats = await userQueries.getStats();
     
     console.log('📊 GET /api/users/stats - Returning stats:', stats);
     
@@ -515,13 +463,24 @@ app.get('/api/users/stats', (req, res) => {
 });
 
 // Health check
-app.get('/api/health', (req, res) => {
-  res.json({
-    success: true,
-    message: 'Talento Backend is running',
-    timestamp: new Date().toISOString(),
-    users: users.length
-  });
+app.get('/api/health', async (req, res) => {
+  try {
+    const stats = await userQueries.getStats();
+    res.json({
+      success: true,
+      message: 'Talento Backend is running',
+      timestamp: new Date().toISOString(),
+      users: stats.totalUsers,
+      database: 'connected'
+    });
+  } catch (error) {
+    res.json({
+      success: true,
+      message: 'Talento Backend is running',
+      timestamp: new Date().toISOString(),
+      database: 'error: ' + error.message
+    });
+  }
 });
 
 // ==================== FILE UPLOAD ENDPOINTS ====================
@@ -665,9 +624,7 @@ app.post('/api/talent/applications', authenticateToken, async (req, res) => {
     }
     
     // Check if user already has a pending or verified application
-    const existingApplication = talentApplications.find(
-      app => app.userId === req.user.id && (app.status === 'pending' || app.status === 'verified')
-    );
+    const existingApplication = await talentQueries.findActiveByUserId(req.user.id);
     
     if (existingApplication) {
       return res.status(409).json({
@@ -676,13 +633,13 @@ app.post('/api/talent/applications', authenticateToken, async (req, res) => {
         existingApplication: {
           id: existingApplication.id,
           status: existingApplication.status,
-          submittedAt: existingApplication.createdAt
+          submittedAt: existingApplication.created_at
         }
       });
     }
     
     // Create new talent application
-    const newApplication = {
+    const newApplication = await talentQueries.create({
       id: uuidv4(),
       userId: req.user.id,
       email: req.user.email,
@@ -720,24 +677,15 @@ app.post('/api/talent/applications', authenticateToken, async (req, res) => {
       paymentMethods: paymentMethods || [],
       
       // Terms
-      termsAccepted: termsAccepted === true,
-      
-      // System Information
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      reviewedAt: null,
-      reviewedBy: null,
-      reviewNotes: ''
-    };
-    
-    talentApplications.push(newApplication);
+      termsAccepted: termsAccepted === true
+    });
     
     console.log('✅ Talent application created:', newApplication.id);
     
     res.status(201).json({
       success: true,
       message: 'Talent application submitted successfully',
-      data: newApplication
+      data: toCamelCase(newApplication)
     });
     
   } catch (error) {
@@ -757,27 +705,23 @@ app.get('/api/talent/applications', authenticateToken, async (req, res) => {
     
     console.log('📋 GET /api/talent/applications - Listing applications (filter:', status || 'all', ')');
     
-    let filteredApplications = talentApplications;
+    // Get applications with optional status filter
+    const applications = await talentQueries.getAll(status);
     
-    // Filter by status if provided
-    if (status && ['pending', 'verified', 'rejected'].includes(status)) {
-      filteredApplications = talentApplications.filter(app => app.status === status);
-    }
+    // Get stats
+    const stats = await talentQueries.getStats();
     
-    // Sort by creation date (newest first)
-    filteredApplications.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-    
-    console.log('✅ Found', filteredApplications.length, 'applications');
+    console.log('✅ Found', applications.length, 'applications');
     
     res.json({
       success: true,
-      data: filteredApplications,
-      count: filteredApplications.length,
+      data: applications.map(app => toCamelCase(app)),
+      count: applications.length,
       stats: {
-        total: talentApplications.length,
-        pending: talentApplications.filter(a => a.status === 'pending').length,
-        verified: talentApplications.filter(a => a.status === 'verified').length,
-        rejected: talentApplications.filter(a => a.status === 'rejected').length
+        total: stats.totalApplications,
+        pending: stats.pending,
+        verified: stats.verified,
+        rejected: stats.rejected
       }
     });
     
@@ -796,7 +740,7 @@ app.get('/api/talent/applications/me', authenticateToken, async (req, res) => {
   try {
     console.log('👤 GET /api/talent/applications/me - Getting application for user:', req.user.id);
     
-    const userApplication = talentApplications.find(app => app.userId === req.user.id);
+    const userApplication = await talentQueries.findByUserId(req.user.id);
     
     if (!userApplication) {
       return res.status(404).json({
@@ -807,7 +751,7 @@ app.get('/api/talent/applications/me', authenticateToken, async (req, res) => {
     
     res.json({
       success: true,
-      data: userApplication
+      data: toCamelCase(userApplication)
     });
     
   } catch (error) {
@@ -827,7 +771,7 @@ app.get('/api/talent/applications/:id', verifyAdmin, async (req, res) => {
     
     console.log('🔍 GET /api/talent/applications/:id - Getting application:', id);
     
-    const application = talentApplications.find(app => app.id === id);
+    const application = await talentQueries.findById(id);
     
     if (!application) {
       return res.status(404).json({
@@ -838,7 +782,7 @@ app.get('/api/talent/applications/:id', verifyAdmin, async (req, res) => {
     
     res.json({
       success: true,
-      data: application
+      data: toCamelCase(application)
     });
     
   } catch (error) {
@@ -867,30 +811,21 @@ app.patch('/api/talent/applications/:id/status', verifyAdmin, async (req, res) =
       });
     }
     
-    const applicationIndex = talentApplications.findIndex(app => app.id === id);
+    const updatedApplication = await talentQueries.updateStatus(id, status, req.user.id, reviewNotes);
     
-    if (applicationIndex === -1) {
+    if (!updatedApplication) {
       return res.status(404).json({
         success: false,
         message: 'Application not found'
       });
     }
     
-    // Update application
-    talentApplications[applicationIndex].status = status;
-    talentApplications[applicationIndex].reviewedAt = new Date().toISOString();
-    talentApplications[applicationIndex].reviewedBy = req.user.id;
-    talentApplications[applicationIndex].reviewNotes = reviewNotes || '';
-    talentApplications[applicationIndex].updatedAt = new Date().toISOString();
-    
-    const updatedApplication = talentApplications[applicationIndex];
-    
     console.log('✅ Application status updated:', updatedApplication.id, '->', status);
     
     res.json({
       success: true,
       message: `Application ${status} successfully`,
-      data: updatedApplication
+      data: toCamelCase(updatedApplication)
     });
     
   } catch (error) {
@@ -910,17 +845,14 @@ app.delete('/api/talent/applications/:id', verifyAdmin, async (req, res) => {
     
     console.log('🗑️ DELETE /api/talent/applications/:id - Deleting application:', id);
     
-    const applicationIndex = talentApplications.findIndex(app => app.id === id);
+    const deletedApplication = await talentQueries.delete(id);
     
-    if (applicationIndex === -1) {
+    if (!deletedApplication) {
       return res.status(404).json({
         success: false,
         message: 'Application not found'
       });
     }
-    
-    const deletedApplication = talentApplications[applicationIndex];
-    talentApplications.splice(applicationIndex, 1);
     
     console.log('✅ Application deleted:', id);
     
@@ -929,7 +861,7 @@ app.delete('/api/talent/applications/:id', verifyAdmin, async (req, res) => {
       message: 'Application deleted successfully',
       deletedApplication: {
         id: deletedApplication.id,
-        fullName: deletedApplication.fullName,
+        fullName: deletedApplication.full_name,
         status: deletedApplication.status
       }
     });
@@ -949,25 +881,17 @@ app.get('/api/talent/stats', verifyAdmin, async (req, res) => {
   try {
     console.log('📊 GET /api/talent/stats - Getting statistics');
     
-    const stats = {
-      totalApplications: talentApplications.length,
-      pending: talentApplications.filter(a => a.status === 'pending').length,
-      verified: talentApplications.filter(a => a.status === 'verified').length,
-      rejected: talentApplications.filter(a => a.status === 'rejected').length,
-      recentApplications: talentApplications
-        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-        .slice(0, 5)
-        .map(app => ({
-          id: app.id,
-          fullName: app.fullName,
-          status: app.status,
-          createdAt: app.createdAt
-        }))
+    const stats = await talentQueries.getStats();
+    
+    // Convert recentApplications to camelCase
+    const formattedStats = {
+      ...stats,
+      recentApplications: stats.recentApplications.map(app => toCamelCase(app))
     };
     
     res.json({
       success: true,
-      data: stats
+      data: formattedStats
     });
     
   } catch (error) {
@@ -980,39 +904,51 @@ app.get('/api/talent/stats', verifyAdmin, async (req, res) => {
   }
 });
 
-// Start server
-app.listen(PORT, () => {
-  console.log('🚀 Talento Backend Server running on port', PORT);
-  console.log('🌐 Frontend URL:', process.env.FRONTEND_URL);
-  console.log('📊 Initial users:', users.length);
-  console.log('📝 Talent applications:', talentApplications.length);
-  console.log('📂 Upload directory:', uploadDir);
-  console.log('🔗 API Endpoints:');
-  console.log('   === Authentication ===');
-  console.log('   POST   /api/auth/login - User login');
-  console.log('   POST   /api/auth/register - User registration');
-  console.log('   GET    /api/auth/me - Get current user info');
-  console.log('   === User Management ===');
-  console.log('   GET    /api/users - Get all verified users');
-  console.log('   POST   /api/users - Create new verified user');
-  console.log('   PATCH  /api/users/:userId/role - Update user role');
-  console.log('   DELETE /api/users/:userId - Delete user');
-  console.log('   GET    /api/users/stats - Get user statistics');
-  console.log('   === File Upload ===');
-  console.log('   POST   /api/upload/media-kit - Upload talent photos');
-  console.log('   DELETE /api/upload/media-kit/:filename - Delete file');
-  console.log('   GET    /api/admin/media-kits - List all files (admin)');
-  console.log('   GET    /uploads/* - Serve uploaded files');
-  console.log('   === Talent Applications ===');
-  console.log('   POST   /api/talent/applications - Submit talent application');
-  console.log('   GET    /api/talent/applications - List all applications (authenticated)');
-  console.log('   GET    /api/talent/applications/me - Get my application');
-  console.log('   GET    /api/talent/applications/:id - Get specific application (admin)');
-  console.log('   PATCH  /api/talent/applications/:id/status - Approve/reject (admin)');
-  console.log('   DELETE /api/talent/applications/:id - Delete application (admin)');
-  console.log('   GET    /api/talent/stats - Get talent statistics (admin)');
-  console.log('   === System ===');
-  console.log('   GET    /api/health - Health check');
-});
+// Initialize database and start server
+async function startServer() {
+  try {
+    // Initialize database
+    await initializeDatabase();
+    
+    // Start server
+    app.listen(PORT, () => {
+      console.log('🚀 Talento Backend Server running on port', PORT);
+      console.log('🌐 Frontend URL:', process.env.FRONTEND_URL);
+      console.log('💾 Database: PostgreSQL (connected)');
+      console.log('📂 Upload directory:', uploadDir);
+      console.log('🔗 API Endpoints:');
+      console.log('   === Authentication ===');
+      console.log('   POST   /api/auth/login - User login');
+      console.log('   POST   /api/auth/register - User registration');
+      console.log('   GET    /api/auth/me - Get current user info');
+      console.log('   === User Management ===');
+      console.log('   GET    /api/users - Get all verified users');
+      console.log('   POST   /api/users - Create new verified user');
+      console.log('   PATCH  /api/users/:userId/role - Update user role');
+      console.log('   DELETE /api/users/:userId - Delete user');
+      console.log('   GET    /api/users/stats - Get user statistics');
+      console.log('   === File Upload ===');
+      console.log('   POST   /api/upload/media-kit - Upload talent photos');
+      console.log('   DELETE /api/upload/media-kit/:filename - Delete file');
+      console.log('   GET    /api/admin/media-kits - List all files (admin)');
+      console.log('   GET    /uploads/* - Serve uploaded files');
+      console.log('   === Talent Applications ===');
+      console.log('   POST   /api/talent/applications - Submit talent application');
+      console.log('   GET    /api/talent/applications - List all applications (authenticated)');
+      console.log('   GET    /api/talent/applications/me - Get my application');
+      console.log('   GET    /api/talent/applications/:id - Get specific application (admin)');
+      console.log('   PATCH  /api/talent/applications/:id/status - Approve/reject (admin)');
+      console.log('   DELETE /api/talent/applications/:id - Delete application (admin)');
+      console.log('   GET    /api/talent/stats - Get talent statistics (admin)');
+      console.log('   === System ===');
+      console.log('   GET    /api/health - Health check');
+    });
+  } catch (error) {
+    console.error('❌ Failed to start server:', error);
+    process.exit(1);
+  }
+}
+
+startServer();
 
 
