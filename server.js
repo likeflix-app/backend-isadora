@@ -122,31 +122,76 @@ app.post('/api/auth/login', async (req, res) => {
     
     // Validate required fields
     if (!email || !password) {
+      console.log('❌ Missing email or password');
       return res.status(400).json({
         success: false,
         message: 'Email and password are required'
       });
     }
     
+    // Test database connection first
+    console.log('🔍 Testing database connection...');
+    try {
+      await db.one('SELECT 1 as test');
+      console.log('✅ Database connection OK');
+    } catch (dbError) {
+      console.error('❌ Database connection failed:', dbError.message);
+      throw new Error('Database connection failed: ' + dbError.message);
+    }
+    
     // Find user
+    console.log('🔍 Looking for user:', email);
     const user = await userQueries.findByEmail(email);
+    
     if (!user) {
+      console.log('❌ User not found:', email);
       return res.status(401).json({
         success: false,
         message: 'Invalid email or password'
+      });
+    }
+    
+    console.log('✅ User found:', {
+      id: user.id,
+      email: user.email,
+      hasPassword: !!user.password,
+      role: user.role
+    });
+    
+    // Check if user has a password
+    if (!user.password) {
+      console.error('❌ User has no password set:', email);
+      return res.status(500).json({
+        success: false,
+        message: 'Account configuration error - no password set'
       });
     }
     
     // Check password
+    console.log('🔍 Checking password...');
     const isValidPassword = await bcrypt.compare(password, user.password);
+    
     if (!isValidPassword) {
+      console.log('❌ Invalid password for:', email);
       return res.status(401).json({
         success: false,
         message: 'Invalid email or password'
       });
     }
     
+    console.log('✅ Password valid for:', email);
+    
+    // Check JWT_SECRET
+    if (!JWT_SECRET || JWT_SECRET === 'your-secret-key-change-in-production') {
+      console.error('❌ JWT_SECRET not configured properly');
+      return res.status(500).json({
+        success: false,
+        message: 'Server configuration error'
+      });
+    }
+    
     // Generate JWT token
+    console.log('🔍 Generating JWT token...');
     const token = jwt.sign(
       { 
         id: user.id, 
@@ -175,11 +220,38 @@ app.post('/api/auth/login', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ POST /api/auth/login error:', error);
+    console.error('❌ POST /api/auth/login error:', error.message);
+    console.error('❌ Full error:', error);
+    
+    // More specific error handling
+    if (error.message.includes('Database connection failed')) {
+      return res.status(500).json({
+        success: false,
+        message: 'Database connection failed',
+        error: error.message
+      });
+    }
+    
+    if (error.message.includes('bcrypt')) {
+      return res.status(500).json({
+        success: false,
+        message: 'Password verification failed',
+        error: error.message
+      });
+    }
+    
+    if (error.message.includes('jwt')) {
+      return res.status(500).json({
+        success: false,
+        message: 'Token generation failed',
+        error: error.message
+      });
+    }
+    
     res.status(500).json({
       success: false,
       message: 'Login failed',
-      error: error.message
+      error: process.env.NODE_ENV === 'production' ? 'Internal server error' : error.message
     });
   }
 });
@@ -274,6 +346,65 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error fetching user info',
+      error: error.message
+    });
+  }
+});
+
+// GET /api/auth/debug-user/:email - Debug user info (for troubleshooting)
+app.get('/api/auth/debug-user/:email', async (req, res) => {
+  try {
+    const { email } = req.params;
+    
+    console.log('🔍 DEBUG: Checking user:', email);
+    
+    // Test database connection
+    try {
+      await db.one('SELECT 1 as test');
+      console.log('✅ Database connection OK');
+    } catch (dbError) {
+      return res.status(500).json({
+        success: false,
+        message: 'Database connection failed',
+        error: dbError.message
+      });
+    }
+    
+    // Find user
+    const user = await userQueries.findByEmail(email);
+    
+    if (!user) {
+      return res.json({
+        success: true,
+        debug: {
+          userExists: false,
+          email: email,
+          message: 'User not found in database'
+        }
+      });
+    }
+    
+    res.json({
+      success: true,
+      debug: {
+        userExists: true,
+        email: user.email,
+        id: user.id,
+        name: user.name,
+        role: user.role,
+        hasPassword: !!user.password,
+        passwordLength: user.password ? user.password.length : 0,
+        emailVerified: user.email_verified,
+        createdAt: user.created_at,
+        updatedAt: user.updated_at
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ GET /api/auth/debug-user error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Debug failed',
       error: error.message
     });
   }
