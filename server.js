@@ -182,7 +182,13 @@ app.post('/api/auth/login', async (req, res) => {
     console.log('✅ Password valid for:', email);
     
     // Check JWT_SECRET
-    if (!JWT_SECRET || JWT_SECRET === 'your-secret-key-change-in-production') {
+    console.log('🔍 JWT_SECRET check:', {
+      exists: !!JWT_SECRET,
+      length: JWT_SECRET ? JWT_SECRET.length : 0,
+      isDefault: JWT_SECRET === 'your-secret-key-change-in-production'
+    });
+    
+    if (!JWT_SECRET) {
       console.error('❌ JWT_SECRET not configured properly');
       return res.status(500).json({
         success: false,
@@ -436,6 +442,84 @@ app.get('/api/auth/debug-user/:email', async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Debug failed',
+      error: error.message
+    });
+  }
+});
+
+// POST /api/auth/create-admin - Create admin user (for testing)
+app.post('/api/auth/create-admin', async (req, res) => {
+  try {
+    const { email, password, name } = req.body;
+    
+    console.log('👑 Creating admin user:', email);
+    
+    // Validate required fields
+    if (!email || !password || !name) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email, password, and name are required'
+      });
+    }
+    
+    // Check if user already exists
+    const existingUser = await userQueries.findByEmail(email);
+    if (existingUser) {
+      // Update existing user to admin
+      const updatedUser = await userQueries.update(existingUser.id, {
+        role: 'admin',
+        password: existingUser.password || await bcrypt.hash(password, 10)
+      });
+      
+      return res.json({
+        success: true,
+        message: 'Existing user promoted to admin',
+        data: {
+          user: {
+            id: updatedUser.id,
+            email: updatedUser.email,
+            name: updatedUser.name,
+            role: updatedUser.role,
+            emailVerified: updatedUser.email_verified
+          }
+        }
+      });
+    }
+    
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+    
+    // Create new admin user
+    const newUser = await userQueries.create({
+      id: uuidv4(),
+      email,
+      name,
+      password: hashedPassword,
+      role: 'admin',
+      emailVerified: true
+    });
+    
+    console.log('✅ Admin user created successfully:', newUser.email);
+    
+    res.status(201).json({
+      success: true,
+      message: 'Admin user created successfully',
+      data: {
+        user: {
+          id: newUser.id,
+          email: newUser.email,
+          name: newUser.name,
+          role: newUser.role,
+          emailVerified: newUser.email_verified
+        }
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ POST /api/auth/create-admin error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to create admin user',
       error: error.message
     });
   }
