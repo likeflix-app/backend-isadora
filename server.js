@@ -274,6 +274,37 @@ app.post('/api/auth/register', async (req, res) => {
     // Check if user already exists
     const existingUser = await userQueries.findByEmail(email);
     if (existingUser) {
+      // If user exists but has no password, allow them to set one
+      if (!existingUser.password) {
+        console.log('🔄 User exists without password, setting password for:', email);
+        
+        // Hash password
+        const hashedPassword = await bcrypt.hash(password, 10);
+        
+        // Update existing user with password
+        const updatedUser = await userQueries.update(existingUser.id, {
+          password: hashedPassword,
+          name: name || existingUser.name,
+          mobile: mobile || existingUser.mobile
+        });
+        
+        console.log('✅ Password set successfully for existing user:', email);
+        
+        return res.status(200).json({
+          success: true,
+          message: 'Password set successfully for existing account',
+          data: {
+            user: {
+              id: updatedUser.id,
+              email: updatedUser.email,
+              name: updatedUser.name,
+              role: updatedUser.role,
+              emailVerified: updatedUser.email_verified
+            }
+          }
+        });
+      }
+      
       return res.status(409).json({
         success: false,
         message: 'User with this email already exists'
