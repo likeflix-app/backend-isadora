@@ -943,8 +943,8 @@ app.post('/api/talent/applications', authenticateToken, async (req, res) => {
   }
 });
 
-// GET /api/talent/applications - Get all talent applications (authenticated users)
-app.get('/api/talent/applications', authenticateToken, async (req, res) => {
+// GET /api/talent/applications - Get all talent applications (public access)
+app.get('/api/talent/applications', async (req, res) => {
   try {
     const { status } = req.query;
     
