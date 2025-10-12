@@ -1404,7 +1404,7 @@ async function startServer() {
       console.log('🚀 Talento Backend Server running on port', PORT);
       console.log('🌐 Frontend URL:', process.env.FRONTEND_URL);
       console.log('💾 Database: PostgreSQL (connected)');
-      console.log('📂 Upload directory:', uploadDir);
+      console.log('☁️ Storage: Cloudinary (talent-media-kits)');
       console.log('🔗 API Endpoints:');
       console.log('   === Authentication ===');
       console.log('   POST   /api/auth/login - User login');
