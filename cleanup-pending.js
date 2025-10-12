@@ -1,6 +1,7 @@
 const fs = require('fs-extra');
 const path = require('path');
 const pgp = require('pg-promise')();
+require('dotenv').config();
 
 // Get database URL from command line argument or environment variable
 const DATABASE_URL = process.argv[2] || process.env.DATABASE_URL;

@@ -1149,6 +1149,32 @@ app.get('/api/talent/stats', verifyAdmin, async (req, res) => {
   }
 });
 
+// GET /api/talents - Get all verified talents (public endpoint)
+app.get('/api/talents', async (req, res) => {
+  try {
+    console.log('🌟 GET /api/talents - Fetching verified talents');
+    
+    // Get only verified talent applications
+    const verifiedTalents = await talentQueries.getAll('verified');
+    
+    console.log('✅ Found', verifiedTalents.length, 'verified talents');
+    
+    res.json({
+      success: true,
+      data: verifiedTalents.map(talent => toCamelCase(talent)),
+      count: verifiedTalents.length
+    });
+    
+  } catch (error) {
+    console.error('❌ GET /api/talents error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching verified talents',
+      error: error.message
+    });
+  }
+});
+
 // Initialize database and start server
 async function startServer() {
   try {
@@ -1185,6 +1211,8 @@ async function startServer() {
       console.log('   PATCH  /api/talent/applications/:id/status - Approve/reject (admin)');
       console.log('   DELETE /api/talent/applications/:id - Delete application (admin)');
       console.log('   GET    /api/talent/stats - Get talent statistics (admin)');
+      console.log('   === Verified Talents ===');
+      console.log('   GET    /api/talents - Get all verified talents (public)');
       console.log('   === System ===');
       console.log('   GET    /api/health - Health check');
     });
