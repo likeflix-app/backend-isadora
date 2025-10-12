@@ -71,6 +71,10 @@ async function initializeDatabase() {
         -- Terms
         terms_accepted BOOLEAN DEFAULT false,
         
+        -- Celebrity & Analytics
+        is_celebrity BOOLEAN DEFAULT false,
+        click_count INTEGER DEFAULT 0,
+        
         -- System Information
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -78,6 +82,17 @@ async function initializeDatabase() {
         reviewed_by VARCHAR(255),
         review_notes TEXT
       )
+    `);
+    
+    // Add celebrity and click_count columns if they don't exist (migration for existing databases)
+    await db.none(`
+      ALTER TABLE talent_applications 
+      ADD COLUMN IF NOT EXISTS is_celebrity BOOLEAN DEFAULT false
+    `);
+    
+    await db.none(`
+      ALTER TABLE talent_applications 
+      ADD COLUMN IF NOT EXISTS click_count INTEGER DEFAULT 0
     `);
     
     // Create indexes for better performance
@@ -345,6 +360,26 @@ const talentQueries = {
       rejected: parseInt(stats.rejected),
       recentApplications
     };
+  },
+  
+  // Toggle celebrity status
+  toggleCelebrityStatus: async (id, isCelebrity) => {
+    return await db.one(
+      `UPDATE talent_applications 
+       SET is_celebrity = $1, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2 RETURNING *`,
+      [isCelebrity, id]
+    );
+  },
+  
+  // Track click
+  trackClick: async (id) => {
+    return await db.one(
+      `UPDATE talent_applications 
+       SET click_count = click_count + 1, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1 RETURNING *`,
+      [id]
+    );
   }
 };
 

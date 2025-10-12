@@ -1175,6 +1175,99 @@ app.get('/api/talents', async (req, res) => {
   }
 });
 
+// PATCH /api/talents/:talentId/celebrity-status - Toggle celebrity status (admin only)
+app.patch('/api/talents/:talentId/celebrity-status', verifyAdmin, async (req, res) => {
+  try {
+    const { talentId } = req.params;
+    const { isCelebrity } = req.body;
+    
+    console.log('⭐ PATCH /api/talents/:talentId/celebrity-status - Toggling celebrity status for:', talentId, 'to:', isCelebrity);
+    
+    // Validate isCelebrity field
+    if (typeof isCelebrity !== 'boolean') {
+      return res.status(400).json({
+        success: false,
+        message: 'isCelebrity field is required and must be a boolean'
+      });
+    }
+    
+    // Check if talent exists
+    const existingTalent = await talentQueries.findById(talentId);
+    if (!existingTalent) {
+      return res.status(404).json({
+        success: false,
+        message: 'Talent not found'
+      });
+    }
+    
+    // Update celebrity status
+    const updatedTalent = await talentQueries.toggleCelebrityStatus(talentId, isCelebrity);
+    
+    console.log('✅ Celebrity status updated for:', updatedTalent.full_name, '- isCelebrity:', isCelebrity);
+    
+    res.json({
+      success: true,
+      message: `Celebrity status ${isCelebrity ? 'enabled' : 'disabled'} successfully`,
+      data: toCamelCase(updatedTalent)
+    });
+    
+  } catch (error) {
+    console.error('❌ PATCH /api/talents/:talentId/celebrity-status error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error updating celebrity status',
+      error: error.message
+    });
+  }
+});
+
+// POST /api/talents/:talentId/track-click - Track talent click (public endpoint)
+app.post('/api/talents/:talentId/track-click', async (req, res) => {
+  try {
+    const { talentId } = req.params;
+    const { timestamp, userAgent, ipAddress } = req.body;
+    
+    console.log('👆 POST /api/talents/:talentId/track-click - Tracking click for:', talentId);
+    
+    // Check if talent exists
+    const existingTalent = await talentQueries.findById(talentId);
+    if (!existingTalent) {
+      return res.status(404).json({
+        success: false,
+        message: 'Talent not found'
+      });
+    }
+    
+    // Track click (increment counter)
+    await talentQueries.trackClick(talentId);
+    
+    // Optional: Log additional analytics data
+    if (timestamp || userAgent || ipAddress) {
+      console.log('📊 Click analytics:', {
+        talentId,
+        timestamp,
+        userAgent: userAgent ? userAgent.substring(0, 50) + '...' : 'N/A',
+        ipAddress: ipAddress || 'N/A'
+      });
+    }
+    
+    console.log('✅ Click tracked successfully for talent:', talentId);
+    
+    res.json({
+      success: true,
+      message: 'Click tracked successfully'
+    });
+    
+  } catch (error) {
+    console.error('❌ POST /api/talents/:talentId/track-click error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error tracking click',
+      error: error.message
+    });
+  }
+});
+
 // Initialize database and start server
 async function startServer() {
   try {
@@ -1213,6 +1306,8 @@ async function startServer() {
       console.log('   GET    /api/talent/stats - Get talent statistics (admin)');
       console.log('   === Verified Talents ===');
       console.log('   GET    /api/talents - Get all verified talents (public)');
+      console.log('   PATCH  /api/talents/:talentId/celebrity-status - Toggle celebrity status (admin)');
+      console.log('   POST   /api/talents/:talentId/track-click - Track talent click (public)');
       console.log('   === System ===');
       console.log('   GET    /api/health - Health check');
     });
