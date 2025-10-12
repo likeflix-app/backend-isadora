@@ -95,11 +95,32 @@ async function initializeDatabase() {
       ADD COLUMN IF NOT EXISTS click_count INTEGER DEFAULT 0
     `);
     
+    // Create media_uploads table
+    await db.none(`
+      CREATE TABLE IF NOT EXISTS media_uploads (
+        id VARCHAR(255) PRIMARY KEY,
+        user_id VARCHAR(255) REFERENCES users(id) ON DELETE SET NULL,
+        talent_id VARCHAR(255) REFERENCES talent_applications(id) ON DELETE CASCADE,
+        filename VARCHAR(255) NOT NULL,
+        original_name VARCHAR(255) NOT NULL,
+        cloudinary_url TEXT NOT NULL,
+        cloudinary_public_id VARCHAR(255) NOT NULL UNIQUE,
+        file_size INTEGER DEFAULT 0,
+        mime_type VARCHAR(100),
+        uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    
     // Create indexes for better performance
     await db.none('CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)');
     await db.none('CREATE INDEX IF NOT EXISTS idx_users_role ON users(role)');
     await db.none('CREATE INDEX IF NOT EXISTS idx_talent_applications_user_id ON talent_applications(user_id)');
     await db.none('CREATE INDEX IF NOT EXISTS idx_talent_applications_status ON talent_applications(status)');
+    await db.none('CREATE INDEX IF NOT EXISTS idx_media_user ON media_uploads(user_id)');
+    await db.none('CREATE INDEX IF NOT EXISTS idx_media_talent ON media_uploads(talent_id)');
+    await db.none('CREATE INDEX IF NOT EXISTS idx_media_cloudinary_id ON media_uploads(cloudinary_public_id)');
+    await db.none('CREATE INDEX IF NOT EXISTS idx_media_created_at ON media_uploads(created_at)');
     
     console.log('✅ Database tables created/verified successfully');
     
@@ -383,6 +404,98 @@ const talentQueries = {
   }
 };
 
+// Database helper functions for media uploads
+const mediaQueries = {
+  // Create new media upload record
+  create: async (mediaData) => {
+    const {
+      id, userId, talentId, filename, originalName,
+      cloudinaryUrl, cloudinaryPublicId, fileSize, mimeType
+    } = mediaData;
+    
+    return await db.one(
+      `INSERT INTO media_uploads(
+        id, user_id, talent_id, filename, original_name,
+        cloudinary_url, cloudinary_public_id, file_size, mime_type,
+        uploaded_at, created_at
+      ) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      RETURNING *`,
+      [id, userId || null, talentId || null, filename, originalName, cloudinaryUrl, cloudinaryPublicId, fileSize || 0, mimeType || 'unknown']
+    );
+  },
+  
+  // Find media by ID
+  findById: async (id) => {
+    return await db.oneOrNone('SELECT * FROM media_uploads WHERE id = $1', [id]);
+  },
+  
+  // Find media by Cloudinary public ID
+  findByCloudinaryId: async (cloudinaryPublicId) => {
+    return await db.oneOrNone('SELECT * FROM media_uploads WHERE cloudinary_public_id = $1', [cloudinaryPublicId]);
+  },
+  
+  // Find all media by talent ID
+  findByTalentId: async (talentId) => {
+    return await db.any(
+      'SELECT * FROM media_uploads WHERE talent_id = $1 ORDER BY created_at DESC',
+      [talentId]
+    );
+  },
+  
+  // Find all media by user ID
+  findByUserId: async (userId) => {
+    return await db.any(
+      'SELECT * FROM media_uploads WHERE user_id = $1 ORDER BY created_at DESC',
+      [userId]
+    );
+  },
+  
+  // Get all media (with optional limit)
+  getAll: async (limit = 100) => {
+    return await db.any(
+      'SELECT * FROM media_uploads ORDER BY created_at DESC LIMIT $1',
+      [limit]
+    );
+  },
+  
+  // Delete media by ID
+  delete: async (id) => {
+    const media = await db.oneOrNone('SELECT * FROM media_uploads WHERE id = $1', [id]);
+    if (!media) return null;
+    
+    await db.none('DELETE FROM media_uploads WHERE id = $1', [id]);
+    return media;
+  },
+  
+  // Delete media by Cloudinary public ID
+  deleteByCloudinaryId: async (cloudinaryPublicId) => {
+    const media = await db.oneOrNone('SELECT * FROM media_uploads WHERE cloudinary_public_id = $1', [cloudinaryPublicId]);
+    if (!media) return null;
+    
+    await db.none('DELETE FROM media_uploads WHERE cloudinary_public_id = $1', [cloudinaryPublicId]);
+    return media;
+  },
+  
+  // Get media statistics
+  getStats: async () => {
+    const stats = await db.one(`
+      SELECT 
+        COUNT(*) as total_files,
+        SUM(file_size) as total_size,
+        COUNT(DISTINCT user_id) as unique_users,
+        COUNT(DISTINCT talent_id) as talents_with_media
+      FROM media_uploads
+    `);
+    
+    return {
+      totalFiles: parseInt(stats.total_files),
+      totalSize: parseInt(stats.total_size || 0),
+      uniqueUsers: parseInt(stats.unique_users || 0),
+      talentsWithMedia: parseInt(stats.talents_with_media || 0)
+    };
+  }
+};
+
 // Helper to convert snake_case to camelCase for API responses
 function toCamelCase(obj) {
   if (!obj || typeof obj !== 'object') return obj;
@@ -414,6 +527,7 @@ module.exports = {
   initializeDatabase,
   userQueries,
   talentQueries,
+  mediaQueries,
   toCamelCase
 };
 

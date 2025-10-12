@@ -9,7 +9,7 @@ const fs = require('fs-extra');
 require('dotenv').config();
 
 // Database
-const { db, initializeDatabase, userQueries, talentQueries, toCamelCase } = require('./db');
+const { db, initializeDatabase, userQueries, talentQueries, mediaQueries, toCamelCase } = require('./db');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -26,21 +26,28 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// File Upload Configuration
-// Create uploads directory if it doesn't exist
-const uploadDir = path.join(__dirname, 'uploads', 'media-kits');
-fs.ensureDirSync(uploadDir);
+// File Upload Configuration - Cloudinary
+const cloudinary = require('cloudinary').v2;
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
 
-// Multer configuration for Render file storage
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    // Generate unique filename with timestamp
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const ext = path.extname(file.originalname);
-    cb(null, `talent-${uniqueSuffix}${ext}`);
+// Configure Cloudinary
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME || 'djecxub3z',
+  api_key: process.env.CLOUDINARY_API_KEY || '366272344528798',
+  api_secret: process.env.CLOUDINARY_API_SECRET || 'AdsQ8kOg0_O83yzvm2kN0-o_Imw'
+});
+
+// Multer configuration for Cloudinary storage
+const storage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: 'talent-media-kits',
+    allowed_formats: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf'],
+    resource_type: 'auto',
+    public_id: (req, file) => {
+      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+      return `talent-${uniqueSuffix}`;
+    }
   }
 });
 
@@ -49,23 +56,13 @@ const upload = multer({
   limits: {
     fileSize: 10 * 1024 * 1024, // 10MB limit
     files: 10 // Max 10 files per request
-  },
-  fileFilter: (req, file, cb) => {
-    // Only allow images and PDFs
-    const allowedTypes = /jpeg|jpg|png|gif|pdf|webp/;
-    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-    const mimetype = allowedTypes.test(file.mimetype);
-    
-    if (mimetype && extname) {
-      return cb(null, true);
-    } else {
-      cb(new Error('Only images (JPEG, PNG, GIF, WebP) and PDFs are allowed'));
-    }
   }
 });
 
-// Serve uploaded files statically
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+console.log('☁️ Cloudinary configured:', {
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME || 'djecxub3z',
+  folder: 'talent-media-kits'
+});
 
 // Authentication middleware
 const authenticateToken = (req, res, next) => {
@@ -730,90 +727,218 @@ app.get('/api/health', async (req, res) => {
 
 // ==================== FILE UPLOAD ENDPOINTS ====================
 
-// POST /api/upload/media-kit - Upload talent photos
+// POST /api/upload/media-kit - Upload talent photos to Cloudinary
 app.post('/api/upload/media-kit', 
   upload.array('mediaKit', 10), 
-  (req, res) => {
+  async (req, res) => {
     try {
       if (!req.files || req.files.length === 0) {
         return res.status(400).json({ error: 'No files uploaded' });
       }
 
-      console.log('📤 POST /api/upload/media-kit - Uploaded', req.files.length, 'files');
+      console.log('📤 POST /api/upload/media-kit - Uploaded', req.files.length, 'files to Cloudinary');
 
-      // Generate URLs for uploaded files
-      const fileUrls = req.files.map(file => {
-        return `${req.protocol}://${req.get('host')}/uploads/media-kits/${file.filename}`;
-      });
+      // Save each file to database
+      const savedFiles = await Promise.all(
+        req.files.map(async (file) => {
+          const mediaRecord = await mediaQueries.create({
+            id: uuidv4(),
+            userId: req.body.userId || null, // Optional: from request body
+            talentId: req.body.talentId || null, // Optional: associate with talent application
+            filename: file.filename,
+            originalName: file.originalname,
+            cloudinaryUrl: file.path, // Cloudinary URL
+            cloudinaryPublicId: file.filename, // Cloudinary public ID
+            fileSize: file.size,
+            mimeType: file.mimetype
+          });
+          
+          console.log('💾 Saved to database:', mediaRecord.id, '-', file.originalname);
+          
+          return mediaRecord;
+        })
+      );
+
+      const fileUrls = savedFiles.map(f => f.cloudinaryUrl);
 
       res.json({
         success: true,
-        files: req.files.map(file => ({
+        files: savedFiles.map(file => ({
+          id: file.id,
           filename: file.filename,
-          originalName: file.originalname,
-          size: file.size,
-          url: `${req.protocol}://${req.get('host')}/uploads/media-kits/${file.filename}`
+          originalName: file.originalName,
+          size: file.fileSize,
+          url: file.cloudinaryUrl,
+          cloudinaryPublicId: file.cloudinaryPublicId
         })),
-        urls: fileUrls
+        urls: fileUrls,
+        message: 'Files uploaded to Cloudinary and saved to database'
       });
     } catch (error) {
       console.error('❌ Upload error:', error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ 
+        success: false,
+        error: error.message 
+      });
     }
   }
 );
 
-// DELETE /api/upload/media-kit/:filename - Delete uploaded file
-app.delete('/api/upload/media-kit/:filename', (req, res) => {
+// DELETE /api/upload/media-kit/:id - Delete uploaded file from Cloudinary and database
+app.delete('/api/upload/media-kit/:id', async (req, res) => {
   try {
-    const filename = req.params.filename;
-    const filePath = path.join(uploadDir, filename);
+    const { id } = req.params;
     
-    console.log('🗑️ DELETE /api/upload/media-kit/:filename - Deleting file:', filename);
+    console.log('🗑️ DELETE /api/upload/media-kit/:id - Deleting file:', id);
     
-    // Check if file exists
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
-      console.log('✅ File deleted successfully:', filename);
-      res.json({ success: true, message: 'File deleted successfully' });
-    } else {
-      console.log('⚠️ File not found:', filename);
-      res.status(404).json({ error: 'File not found' });
+    // Get file from database
+    const mediaFile = await mediaQueries.findById(id);
+    
+    if (!mediaFile) {
+      console.log('⚠️ File not found in database:', id);
+      return res.status(404).json({ 
+        success: false,
+        error: 'File not found' 
+      });
     }
+    
+    // Delete from Cloudinary
+    try {
+      const cloudinaryResult = await cloudinary.uploader.destroy(mediaFile.cloudinaryPublicId);
+      console.log('☁️ Cloudinary delete result:', cloudinaryResult.result);
+    } catch (cloudinaryError) {
+      console.warn('⚠️ Cloudinary delete warning:', cloudinaryError.message);
+      // Continue even if Cloudinary delete fails (file might already be deleted)
+    }
+    
+    // Delete from database
+    await mediaQueries.delete(id);
+    
+    console.log('✅ File deleted from Cloudinary and database:', id);
+    
+    res.json({ 
+      success: true, 
+      message: 'File deleted successfully',
+      deletedFile: {
+        id: mediaFile.id,
+        filename: mediaFile.filename,
+        originalName: mediaFile.originalName
+      }
+    });
+    
   } catch (error) {
     console.error('❌ Delete error:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ 
+      success: false,
+      error: error.message 
+    });
   }
 });
 
-// GET /api/admin/media-kits - List all uploaded files (admin only)
+// GET /api/admin/media-kits - List all uploaded files from database (admin only)
 app.get('/api/admin/media-kits', verifyAdmin, async (req, res) => {
   try {
-    console.log('📂 GET /api/admin/media-kits - Listing all files');
+    console.log('📂 GET /api/admin/media-kits - Listing all files from database');
     
-    const files = fs.readdirSync(uploadDir);
-    const fileList = files.map(filename => {
-      const filePath = path.join(uploadDir, filename);
-      const stats = fs.statSync(filePath);
-      
-      return {
-        filename,
-        url: `${req.protocol}://${req.get('host')}/uploads/media-kits/${filename}`,
-        size: stats.size,
-        uploadedAt: stats.birthtime
-      };
-    });
+    const limit = parseInt(req.query.limit) || 100;
+    const files = await mediaQueries.getAll(limit);
     
-    console.log('✅ Found', fileList.length, 'files');
+    // Get statistics
+    const stats = await mediaQueries.getStats();
+    
+    console.log('✅ Found', files.length, 'files in database');
     
     res.json({
       success: true,
-      data: fileList,
-      count: fileList.length
+      data: files.map(file => toCamelCase(file)),
+      count: files.length,
+      stats: {
+        totalFiles: stats.totalFiles,
+        totalSize: stats.totalSize,
+        totalSizeMB: (stats.totalSize / (1024 * 1024)).toFixed(2),
+        uniqueUsers: stats.uniqueUsers,
+        talentsWithMedia: stats.talentsWithMedia
+      }
     });
   } catch (error) {
     console.error('❌ Error listing files:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ 
+      success: false,
+      error: error.message 
+    });
+  }
+});
+
+// GET /api/media/user/:userId - Get all media for a specific user (admin only)
+app.get('/api/media/user/:userId', verifyAdmin, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    console.log('📸 GET /api/media/user/:userId - Getting media for user:', userId);
+    
+    const media = await mediaQueries.findByUserId(userId);
+    
+    res.json({
+      success: true,
+      data: media.map(file => toCamelCase(file)),
+      count: media.length
+    });
+  } catch (error) {
+    console.error('❌ Error fetching user media:', error);
+    res.status(500).json({ 
+      success: false,
+      error: error.message 
+    });
+  }
+});
+
+// GET /api/media/talent/:talentId - Get all media for a specific talent application
+app.get('/api/media/talent/:talentId', async (req, res) => {
+  try {
+    const { talentId } = req.params;
+    
+    console.log('📸 GET /api/media/talent/:talentId - Getting media for talent:', talentId);
+    
+    const media = await mediaQueries.findByTalentId(talentId);
+    
+    res.json({
+      success: true,
+      data: media.map(file => toCamelCase(file)),
+      count: media.length
+    });
+  } catch (error) {
+    console.error('❌ Error fetching talent media:', error);
+    res.status(500).json({ 
+      success: false,
+      error: error.message 
+    });
+  }
+});
+
+// GET /api/media/stats - Get media upload statistics (admin only)
+app.get('/api/media/stats', verifyAdmin, async (req, res) => {
+  try {
+    console.log('📊 GET /api/media/stats - Getting media statistics');
+    
+    const stats = await mediaQueries.getStats();
+    
+    res.json({
+      success: true,
+      data: {
+        totalFiles: stats.totalFiles,
+        totalSize: stats.totalSize,
+        totalSizeMB: (stats.totalSize / (1024 * 1024)).toFixed(2),
+        totalSizeGB: (stats.totalSize / (1024 * 1024 * 1024)).toFixed(2),
+        uniqueUsers: stats.uniqueUsers,
+        talentsWithMedia: stats.talentsWithMedia
+      }
+    });
+  } catch (error) {
+    console.error('❌ Error fetching media stats:', error);
+    res.status(500).json({ 
+      success: false,
+      error: error.message 
+    });
   }
 });
 
