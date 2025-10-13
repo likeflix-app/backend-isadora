@@ -737,23 +737,41 @@ app.post('/api/upload/media-kit',
       }
 
       console.log('📤 POST /api/upload/media-kit - Uploaded', req.files.length, 'files to Cloudinary');
+      
+      // Debug: Log what properties are available in the file object
+      if (req.files.length > 0) {
+        console.log('📋 File object properties:', Object.keys(req.files[0]));
+        console.log('📋 Sample file data:', {
+          filename: req.files[0].filename,
+          path: req.files[0].path,
+          url: req.files[0].url,
+          secure_url: req.files[0].secure_url
+        });
+      }
 
       // Save each file to database
       const savedFiles = await Promise.all(
         req.files.map(async (file) => {
+          // Extract Cloudinary URL - try multiple properties
+          const cloudinaryUrl = file.path || file.secure_url || file.url || null;
+          
+          if (!cloudinaryUrl) {
+            console.warn('⚠️ No URL found for file:', file.originalname);
+          }
+          
           const mediaRecord = await mediaQueries.create({
             id: uuidv4(),
             userId: req.body.userId || null, // Optional: from request body
             talentId: req.body.talentId || null, // Optional: associate with talent application
             filename: file.filename,
             originalName: file.originalname,
-            cloudinaryUrl: file.path, // Cloudinary URL
+            cloudinaryUrl: cloudinaryUrl, // Cloudinary URL (secure_url)
             cloudinaryPublicId: file.filename, // Cloudinary public ID
             fileSize: file.size,
             mimeType: file.mimetype
           });
           
-          console.log('💾 Saved to database:', mediaRecord.id, '-', file.originalname);
+          console.log('💾 Saved to database:', mediaRecord.id, '-', file.originalname, '- URL:', cloudinaryUrl);
           
           return mediaRecord;
         })
