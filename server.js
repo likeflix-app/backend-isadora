@@ -28,7 +28,6 @@ app.use(express.json());
 
 // File Upload Configuration - Cloudinary
 const cloudinary = require('cloudinary').v2;
-const { CloudinaryStorage } = require('multer-storage-cloudinary');
 
 // Configure Cloudinary
 cloudinary.config({
@@ -37,19 +36,8 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET || 'AdsQ8kOg0_O83yzvm2kN0-o_Imw'
 });
 
-// Multer configuration for Cloudinary storage
-const storage = new CloudinaryStorage({
-  cloudinary: cloudinary,
-  params: {
-    folder: 'talent-media-kits',
-    allowed_formats: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf'],
-    resource_type: 'auto',
-    public_id: (req, file) => {
-      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-      return `talent-${uniqueSuffix}`;
-    }
-  }
-});
+// Multer configuration for memory storage (to upload directly to Cloudinary)
+const storage = multer.memoryStorage();
 
 const upload = multer({
   storage: storage,
@@ -736,59 +724,78 @@ app.post('/api/upload/media-kit',
         return res.status(400).json({ error: 'No files uploaded' });
       }
 
-      console.log('📤 POST /api/upload/media-kit - Uploaded', req.files.length, 'files to Cloudinary');
-      
-      // Debug: Log what properties are available in the file object
-      if (req.files.length > 0) {
-        console.log('📋 File object properties:', Object.keys(req.files[0]));
-        console.log('📋 Sample file data:', {
-          filename: req.files[0].filename,
-          path: req.files[0].path,
-          url: req.files[0].url,
-          secure_url: req.files[0].secure_url
-        });
-      }
+      console.log('📤 POST /api/upload/media-kit - Uploading', req.files.length, 'files to Cloudinary');
 
-      // Save each file to database
-      const savedFiles = await Promise.all(
+      // Upload each file to Cloudinary and save to database
+      const uploadedFiles = await Promise.all(
         req.files.map(async (file) => {
-          // Extract Cloudinary URL - try multiple properties
-          const cloudinaryUrl = file.path || file.secure_url || file.url || null;
-          
-          if (!cloudinaryUrl) {
-            console.warn('⚠️ No URL found for file:', file.originalname);
+          try {
+            // Generate unique public ID
+            const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+            const publicId = `talent-media-kits/talent-${uniqueSuffix}`;
+            
+            // Upload to Cloudinary using upload_stream
+            const cloudinaryResult = await new Promise((resolve, reject) => {
+              const uploadStream = cloudinary.uploader.upload_stream(
+                {
+                  folder: 'talent-media-kits',
+                  public_id: publicId,
+                  resource_type: 'auto',
+                  allowed_formats: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf']
+                },
+                (error, result) => {
+                  if (error) {
+                    console.error('❌ Cloudinary upload error:', error);
+                    reject(error);
+                  } else {
+                    console.log('✅ Cloudinary upload success:', result.secure_url);
+                    resolve(result);
+                  }
+                }
+              );
+              
+              // Write the file buffer to the upload stream
+              uploadStream.end(file.buffer);
+            });
+
+            // Save to database
+            const mediaRecord = await mediaQueries.create({
+              id: uuidv4(),
+              userId: req.body.userId || null,
+              talentId: req.body.talentId || null,
+              filename: cloudinaryResult.public_id,
+              originalName: file.originalname,
+              cloudinaryUrl: cloudinaryResult.secure_url,
+              cloudinaryPublicId: cloudinaryResult.public_id,
+              fileSize: file.size,
+              mimeType: file.mimetype
+            });
+            
+            console.log('💾 Saved to database:', mediaRecord.id, '-', file.originalname, '- URL:', cloudinaryResult.secure_url);
+            
+            return {
+              id: mediaRecord.id,
+              filename: mediaRecord.filename,
+              originalName: mediaRecord.originalName,
+              size: mediaRecord.fileSize,
+              url: mediaRecord.cloudinaryUrl,
+              cloudinaryPublicId: mediaRecord.cloudinaryPublicId
+            };
+            
+          } catch (error) {
+            console.error('❌ Error uploading file:', file.originalname, error);
+            throw error;
           }
-          
-          const mediaRecord = await mediaQueries.create({
-            id: uuidv4(),
-            userId: req.body.userId || null, // Optional: from request body
-            talentId: req.body.talentId || null, // Optional: associate with talent application
-            filename: file.filename,
-            originalName: file.originalname,
-            cloudinaryUrl: cloudinaryUrl, // Cloudinary URL (secure_url)
-            cloudinaryPublicId: file.filename, // Cloudinary public ID
-            fileSize: file.size,
-            mimeType: file.mimetype
-          });
-          
-          console.log('💾 Saved to database:', mediaRecord.id, '-', file.originalname, '- URL:', cloudinaryUrl);
-          
-          return mediaRecord;
         })
       );
 
-      const fileUrls = savedFiles.map(f => f.cloudinaryUrl);
+      const fileUrls = uploadedFiles.map(f => f.url);
+
+      console.log('✅ All files uploaded successfully. URLs:', fileUrls);
 
       res.json({
         success: true,
-        files: savedFiles.map(file => ({
-          id: file.id,
-          filename: file.filename,
-          originalName: file.originalName,
-          size: file.fileSize,
-          url: file.cloudinaryUrl,
-          cloudinaryPublicId: file.cloudinaryPublicId
-        })),
+        files: uploadedFiles,
         urls: fileUrls,
         message: 'Files uploaded to Cloudinary and saved to database'
       });
