@@ -512,11 +512,21 @@ function toCamelCase(obj) {
   for (const key in obj) {
     const camelKey = key.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
     
+    // Debug logging for media_kit_urls
+    if (key === 'media_kit_urls') {
+      console.log('🔄 toCamelCase - media_kit_urls key found:', key);
+      console.log('🔄 toCamelCase - media_kit_urls value:', obj[key]);
+      console.log('🔄 toCamelCase - media_kit_urls type:', typeof obj[key]);
+    }
+    
     // Parse JSON fields
     if (typeof obj[key] === 'string' && (key.includes('channels') || key.includes('urls') || key.includes('categories') || key.includes('methods'))) {
       try {
-        camelObj[camelKey] = JSON.parse(obj[key]);
-      } catch {
+        const parsed = JSON.parse(obj[key]);
+        console.log('🔄 toCamelCase - Parsed JSON for', key, ':', parsed);
+        camelObj[camelKey] = parsed;
+      } catch (error) {
+        console.log('🔄 toCamelCase - JSON parse failed for', key, ':', error.message);
         camelObj[camelKey] = obj[key];
       }
     } else {
