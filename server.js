@@ -20,7 +20,8 @@ app.use(cors({
   origin: [
     process.env.FRONTEND_URL,
     'https://frontend-isadora.onrender.com',
-    'http://localhost:8084'
+    'http://localhost:8084',
+    'http://localhost:8083'
   ],
   credentials: true
 }));
