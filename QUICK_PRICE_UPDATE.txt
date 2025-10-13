@@ -1,0 +1,139 @@
+═══════════════════════════════════════════════════════════════
+  QUICK GUIDE: How to Change Talent Price via API
+═══════════════════════════════════════════════════════════════
+
+📍 ENDPOINT: PATCH /api/talent/applications/:id
+
+🔑 REQUIREMENTS:
+   - Admin JWT token
+   - Content-Type: application/json
+   - Price: string with € symbols only
+
+💶 PRICE OPTIONS:
+   ""       = No price (empty)
+   "€"      = Budget
+   "€€"     = Moderate  
+   "€€€"    = Premium
+   "€€€€"   = Luxury
+   "€€€€€"  = Elite
+
+═══════════════════════════════════════════════════════════════
+  METHOD 1: cURL (Terminal)
+═══════════════════════════════════════════════════════════════
+
+curl -X PATCH "http://localhost:3000/api/talent/applications/TALENT_ID" \
+  -H "Authorization: Bearer YOUR_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"price": "€€€€€"}'
+
+EXAMPLE (real):
+curl -X PATCH "http://localhost:3000/api/talent/applications/abc-123" \
+  -H "Authorization: Bearer eyJhbGc..." \
+  -H "Content-Type: application/json" \
+  -d '{"price": "€€€"}'
+
+═══════════════════════════════════════════════════════════════
+  METHOD 2: Postman / Thunder Client
+═══════════════════════════════════════════════════════════════
+
+Method: PATCH
+URL: http://localhost:3000/api/talent/applications/TALENT_ID
+
+Headers:
+  Authorization: Bearer YOUR_ADMIN_TOKEN
+  Content-Type: application/json
+
+Body (JSON):
+{
+  "price": "€€€€€"
+}
+
+═══════════════════════════════════════════════════════════════
+  METHOD 3: JavaScript (Browser/Node)
+═══════════════════════════════════════════════════════════════
+
+const talentId = 'abc-123';
+const newPrice = '€€€€€';
+const token = 'YOUR_ADMIN_TOKEN';
+
+fetch(`http://localhost:3000/api/talent/applications/${talentId}`, {
+  method: 'PATCH',
+  headers: {
+    'Authorization': `Bearer ${token}`,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({ price: newPrice })
+})
+.then(res => res.json())
+.then(data => console.log('Updated:', data))
+.catch(err => console.error('Error:', err));
+
+═══════════════════════════════════════════════════════════════
+  COMMON EXAMPLES
+═══════════════════════════════════════════════════════════════
+
+# Set Pacolino to Elite (€€€€€)
+curl -X PATCH "http://localhost:3000/api/talent/applications/pacolino-id" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"price": "€€€€€"}'
+
+# Set talent to Moderate (€€)
+curl -X PATCH "http://localhost:3000/api/talent/applications/talent-id" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"price": "€€"}'
+
+# Clear/remove price
+curl -X PATCH "http://localhost:3000/api/talent/applications/talent-id" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"price": ""}'
+
+═══════════════════════════════════════════════════════════════
+  HOW TO GET YOUR ADMIN TOKEN
+═══════════════════════════════════════════════════════════════
+
+Option 1: From browser (logged in as admin)
+1. Open DevTools (F12)
+2. Go to Application → Local Storage
+3. Copy 'authToken' value
+
+Option 2: Via API login
+curl -X POST "http://localhost:3000/api/auth/login" \
+  -H "Content-Type: application/json" \
+  -d '{"email": "admin@talento.com", "password": "your_password"}'
+
+═══════════════════════════════════════════════════════════════
+  SUCCESS RESPONSE
+═══════════════════════════════════════════════════════════════
+
+{
+  "success": true,
+  "application": {
+    "id": "abc-123",
+    "fullName": "Pacolino",
+    "nickname": "Crescino",
+    "price": "€€€€€",
+    ...
+  }
+}
+
+═══════════════════════════════════════════════════════════════
+  ERROR RESPONSES
+═══════════════════════════════════════════════════════════════
+
+403: {"success": false, "message": "Only admins can update the price field"}
+     → You're not logged in as admin
+
+400: {"success": false, "message": "Price field must contain only € symbols"}
+     → Invalid price format (use only € symbols)
+
+401: {"success": false, "message": "Invalid or expired token"}
+     → Token expired or invalid
+
+404: {"success": false, "message": "Application not found"}
+     → Wrong talent ID
+
+═══════════════════════════════════════════════════════════════
+

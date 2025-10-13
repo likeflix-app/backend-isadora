@@ -1,0 +1,49 @@
+FRONTEND FEATURE REQUEST: Admin Price Update for Talents
+
+Please implement a UI feature for admins to update the "price" field on talent profiles.
+
+API ENDPOINT:
+PATCH /api/talent/applications/:id
+
+AUTHENTICATION:
+- Requires JWT token in Authorization header
+- Only users with role="admin" can update price
+
+REQUEST:
+Headers: { "Authorization": "Bearer <TOKEN>", "Content-Type": "application/json" }
+Body: { "price": "€€€€€" }
+
+PRICE RULES:
+- Must be a string containing ONLY € symbols
+- Valid values: "", "€", "€€", "€€€", "€€€€", "€€€€€"
+- Empty string clears the price
+- Non-admins get 403 Forbidden error
+
+UI REQUIREMENTS:
+1. Show price field ONLY to admin users (check user.role === 'admin')
+2. Display current price value
+3. Allow selection from 0-5 euro symbols
+4. Suggested UI: dropdown or star-rating style selector
+5. Show success/error messages
+
+EXAMPLE API CALL:
+```javascript
+const response = await fetch(`/api/talent/applications/${talentId}`, {
+  method: 'PATCH',
+  headers: {
+    'Authorization': `Bearer ${token}`,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({ price: '€€€€€' })
+});
+```
+
+SUCCESS RESPONSE:
+{ "success": true, "application": { "price": "€€€€€", ... } }
+
+ERROR RESPONSES:
+- 403: "Only admins can update the price field"
+- 400: "Price field must contain only € symbols"
+
+See FRONTEND_PRICE_UPDATE_PROMPT.md for complete documentation with code examples.
+
