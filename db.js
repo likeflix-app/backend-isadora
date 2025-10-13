@@ -276,6 +276,10 @@ const talentQueries = {
       termsAccepted
     } = applicationData;
     
+    console.log('🗄️ Database create - mediaKitUrls received:', mediaKitUrls);
+    console.log('🗄️ Database create - mediaKitUrls type:', typeof mediaKitUrls);
+    console.log('🗄️ Database create - mediaKitUrls JSON:', JSON.stringify(mediaKitUrls));
+    
     return await db.one(
       `INSERT INTO talent_applications(
         id, user_id, email, status,

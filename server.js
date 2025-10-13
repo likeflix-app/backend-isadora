@@ -1002,6 +1002,9 @@ app.post('/api/talent/applications', authenticateToken, async (req, res) => {
     } = req.body;
     
     console.log('📝 POST /api/talent/applications - New application from:', req.user.email);
+    console.log('📋 Received mediaKitUrls:', mediaKitUrls);
+    console.log('📋 mediaKitUrls type:', typeof mediaKitUrls);
+    console.log('📋 mediaKitUrls length:', Array.isArray(mediaKitUrls) ? mediaKitUrls.length : 'not array');
     
     // Validate required fields
     if (!fullName || !birthYear || !city || !phone || !termsAccepted) {
@@ -1069,6 +1072,9 @@ app.post('/api/talent/applications', authenticateToken, async (req, res) => {
     });
     
     console.log('✅ Talent application created:', newApplication.id);
+    console.log('📋 Saved mediaKitUrls:', newApplication.media_kit_urls);
+    console.log('📋 Saved mediaKitUrls type:', typeof newApplication.media_kit_urls);
+    console.log('📋 Saved mediaKitUrls length:', Array.isArray(newApplication.media_kit_urls) ? newApplication.media_kit_urls.length : 'not array');
     
     res.status(201).json({
       success: true,
