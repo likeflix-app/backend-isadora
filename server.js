@@ -727,76 +727,69 @@ app.post('/api/upload/media-kit',
       console.log('📤 POST /api/upload/media-kit - Uploading', req.files.length, 'files to Cloudinary');
 
       // Upload each file to Cloudinary and save to database
-      const uploadedFiles = await Promise.all(
-        req.files.map(async (file) => {
-          try {
-            // Generate unique public ID
-            const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-            const publicId = `talent-media-kits/talent-${uniqueSuffix}`;
-            
-            // Upload to Cloudinary using upload_stream
-            const cloudinaryResult = await new Promise((resolve, reject) => {
-              const uploadStream = cloudinary.uploader.upload_stream(
-                {
-                  folder: 'talent-media-kits',
-                  public_id: publicId,
-                  resource_type: 'auto',
-                  allowed_formats: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf']
-                },
-                (error, result) => {
-                  if (error) {
-                    console.error('❌ Cloudinary upload error:', error);
-                    reject(error);
-                  } else {
-                    console.log('✅ Cloudinary upload success:', result.secure_url);
-                    resolve(result);
-                  }
-                }
-              );
-              
-              // Write the file buffer to the upload stream
-              uploadStream.end(file.buffer);
-            });
+      const uploadedFiles = [];
+      const urls = [];
+      
+      for (const file of req.files) {
+        try {
+          // Generate unique public ID
+          const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+          const publicId = `talent-media-kits/talent-${uniqueSuffix}`;
+          
+          // Upload to Cloudinary using upload method with buffer
+          const cloudinaryResult = await cloudinary.uploader.upload(
+            `data:${file.mimetype};base64,${file.buffer.toString('base64')}`,
+            {
+              folder: 'talent-media-kits',
+              public_id: publicId,
+              resource_type: 'auto',
+              allowed_formats: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf']
+            }
+          );
+          
+          const cloudinaryUrl = cloudinaryResult.secure_url; // ← Extract this URL
+          
+          console.log('✅ Cloudinary upload success:', cloudinaryUrl);
 
-            // Save to database
-            const mediaRecord = await mediaQueries.create({
-              id: uuidv4(),
-              userId: req.body.userId || null,
-              talentId: req.body.talentId || null,
-              filename: cloudinaryResult.public_id,
-              originalName: file.originalname,
-              cloudinaryUrl: cloudinaryResult.secure_url,
-              cloudinaryPublicId: cloudinaryResult.public_id,
-              fileSize: file.size,
-              mimeType: file.mimetype
-            });
-            
-            console.log('💾 Saved to database:', mediaRecord.id, '-', file.originalname, '- URL:', cloudinaryResult.secure_url);
-            
-            return {
-              id: mediaRecord.id,
-              filename: mediaRecord.filename,
-              originalName: mediaRecord.originalName,
-              size: mediaRecord.fileSize,
-              url: mediaRecord.cloudinaryUrl,
-              cloudinaryPublicId: mediaRecord.cloudinaryPublicId
-            };
-            
-          } catch (error) {
-            console.error('❌ Error uploading file:', file.originalname, error);
-            throw error;
-          }
-        })
-      );
+          // Save to database
+          const mediaRecord = await mediaQueries.create({
+            id: uuidv4(),
+            userId: req.body.userId || null,
+            talentId: req.body.talentId || null,
+            filename: cloudinaryResult.public_id,
+            originalName: file.originalname,
+            cloudinaryUrl: cloudinaryUrl,
+            cloudinaryPublicId: cloudinaryResult.public_id,
+            fileSize: file.size,
+            mimeType: file.mimetype
+          });
+          
+          console.log('💾 Saved to database:', mediaRecord.id, '-', file.originalname, '- URL:', cloudinaryUrl);
+          
+          // ← Include URL in response
+          uploadedFiles.push({
+            id: mediaRecord.id,
+            filename: mediaRecord.filename,
+            originalName: mediaRecord.originalName,
+            size: mediaRecord.fileSize,
+            url: cloudinaryUrl, // ← Include URL in response
+            cloudinaryPublicId: mediaRecord.cloudinaryPublicId
+          });
+          
+          urls.push(cloudinaryUrl); // ← Add to URLs array
+          
+        } catch (error) {
+          console.error('❌ Error uploading file:', file.originalname, error);
+          throw error;
+        }
+      }
 
-      const fileUrls = uploadedFiles.map(f => f.url);
-
-      console.log('✅ All files uploaded successfully. URLs:', fileUrls);
+      console.log('✅ All files uploaded successfully. URLs:', urls);
 
       res.json({
         success: true,
         files: uploadedFiles,
-        urls: fileUrls,
+        urls: urls, // ← Use the URLs array we built
         message: 'Files uploaded to Cloudinary and saved to database'
       });
     } catch (error) {
