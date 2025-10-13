@@ -95,6 +95,12 @@ async function initializeDatabase() {
       ADD COLUMN IF NOT EXISTS click_count INTEGER DEFAULT 0
     `);
     
+    // Add price field (admin only, stores € symbols like "€€€")
+    await db.none(`
+      ALTER TABLE talent_applications 
+      ADD COLUMN IF NOT EXISTS price VARCHAR(10) DEFAULT ''
+    `);
+    
     // Create media_uploads table
     await db.none(`
       CREATE TABLE IF NOT EXISTS media_uploads (
@@ -339,6 +345,59 @@ const talentQueries = {
       "SELECT * FROM talent_applications WHERE user_id = $1 AND status IN ('pending', 'verified')",
       [userId]
     );
+  },
+  
+  // Update application
+  update: async (id, updates) => {
+    const fields = [];
+    const values = [];
+    let paramIndex = 1;
+    
+    // Map camelCase to snake_case for database fields
+    const fieldMapping = {
+      city: 'city',
+      phone: 'phone',
+      bio: 'bio',
+      socialChannels: 'social_channels',
+      socialLinks: 'social_links',
+      mediaKitUrls: 'media_kit_urls',
+      contentCategories: 'content_categories',
+      availableForProducts: 'available_for_products',
+      shippingAddress: 'shipping_address',
+      availableForReels: 'available_for_reels',
+      availableNext3Months: 'available_next_3_months',
+      availabilityPeriod: 'availability_period',
+      hasVAT: 'has_vat',
+      paymentMethods: 'payment_methods',
+      price: 'price'
+    };
+    
+    Object.keys(updates).forEach(key => {
+      const dbField = fieldMapping[key];
+      if (dbField) {
+        let value = updates[key];
+        
+        // Convert arrays to JSON strings for JSONB fields
+        if (['socialChannels', 'mediaKitUrls', 'contentCategories', 'paymentMethods'].includes(key)) {
+          value = JSON.stringify(value);
+        }
+        
+        fields.push(`${dbField} = $${paramIndex}`);
+        values.push(value);
+        paramIndex++;
+      }
+    });
+    
+    if (fields.length === 0) {
+      throw new Error('No valid fields to update');
+    }
+    
+    // Always update the updated_at timestamp
+    fields.push(`updated_at = CURRENT_TIMESTAMP`);
+    values.push(id);
+    
+    const query = `UPDATE talent_applications SET ${fields.join(', ')} WHERE id = $${paramIndex} RETURNING *`;
+    return await db.one(query, values);
   },
   
   // Update application status

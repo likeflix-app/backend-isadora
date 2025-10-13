@@ -1190,6 +1190,107 @@ app.get('/api/talent/applications/:id', verifyAdmin, async (req, res) => {
   }
 });
 
+// PATCH /api/talent/applications/:id - Update talent application (user owns or admin)
+app.patch('/api/talent/applications/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      city,
+      phone,
+      bio,
+      socialChannels,
+      socialLinks,
+      mediaKitUrls,
+      contentCategories,
+      availableForProducts,
+      shippingAddress,
+      availableForReels,
+      availableNext3Months,
+      availabilityPeriod,
+      hasVAT,
+      paymentMethods,
+      price
+    } = req.body;
+    
+    console.log('🔄 PATCH /api/talent/applications/:id - Updating application:', id);
+    
+    // Get existing application
+    const existingApplication = await talentQueries.findById(id);
+    
+    if (!existingApplication) {
+      return res.status(404).json({
+        success: false,
+        message: 'Application not found'
+      });
+    }
+    
+    // Check permissions: user can update their own, admin can update any
+    if (req.user.role !== 'admin' && existingApplication.user_id !== req.user.id) {
+      return res.status(403).json({
+        success: false,
+        message: 'You can only update your own application'
+      });
+    }
+    
+    // Build update object with only provided fields
+    const updates = {};
+    
+    if (city !== undefined) updates.city = city;
+    if (phone !== undefined) updates.phone = phone;
+    if (bio !== undefined) updates.bio = bio;
+    if (socialChannels !== undefined) updates.socialChannels = socialChannels;
+    if (socialLinks !== undefined) updates.socialLinks = socialLinks;
+    if (mediaKitUrls !== undefined) updates.mediaKitUrls = mediaKitUrls;
+    if (contentCategories !== undefined) updates.contentCategories = contentCategories;
+    if (availableForProducts !== undefined) updates.availableForProducts = availableForProducts;
+    if (shippingAddress !== undefined) updates.shippingAddress = shippingAddress;
+    if (availableForReels !== undefined) updates.availableForReels = availableForReels;
+    if (availableNext3Months !== undefined) updates.availableNext3Months = availableNext3Months;
+    if (availabilityPeriod !== undefined) updates.availabilityPeriod = availabilityPeriod;
+    if (hasVAT !== undefined) updates.hasVAT = hasVAT;
+    if (paymentMethods !== undefined) updates.paymentMethods = paymentMethods;
+    
+    // Price field - ADMIN ONLY
+    if (price !== undefined) {
+      if (req.user.role !== 'admin') {
+        return res.status(403).json({
+          success: false,
+          message: 'Only admins can update the price field'
+        });
+      }
+      
+      // Validate price contains only € symbols
+      if (price && !/^€*$/.test(price)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Price field must contain only € symbols (e.g., "€", "€€", "€€€")'
+        });
+      }
+      
+      updates.price = price;
+    }
+    
+    // Update application
+    const updatedApplication = await talentQueries.update(id, updates);
+    
+    console.log('✅ Application updated successfully:', id);
+    
+    res.json({
+      success: true,
+      message: 'Application updated successfully',
+      data: toCamelCase(updatedApplication)
+    });
+    
+  } catch (error) {
+    console.error('❌ PATCH /api/talent/applications/:id error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error updating application',
+      error: error.message
+    });
+  }
+});
+
 // PATCH /api/talent/applications/:id/status - Update application status (admin only)
 app.patch('/api/talent/applications/:id/status', verifyAdmin, async (req, res) => {
   try {
@@ -1451,6 +1552,7 @@ async function startServer() {
       console.log('   GET    /api/talent/applications - List all applications (authenticated)');
       console.log('   GET    /api/talent/applications/me - Get my application');
       console.log('   GET    /api/talent/applications/:id - Get specific application (admin)');
+      console.log('   PATCH  /api/talent/applications/:id - Update application (user/admin)');
       console.log('   PATCH  /api/talent/applications/:id/status - Approve/reject (admin)');
       console.log('   DELETE /api/talent/applications/:id - Delete application (admin)');
       console.log('   GET    /api/talent/stats - Get talent statistics (admin)');
