@@ -1800,20 +1800,12 @@ app.patch('/api/bookings/:bookingId/status', verifyAdmin, async (req, res) => {
   }
 });
 
-// GET /api/bookings/user/:userId - Get user's bookings (authenticated user or admin)
+// GET /api/bookings/user/:userId - Get user's bookings (any authenticated user)
 app.get('/api/bookings/user/:userId', authenticateToken, async (req, res) => {
   try {
     const { userId } = req.params;
     
     console.log('👤 GET /api/bookings/user/:userId - Getting bookings for user:', userId);
-    
-    // Check permissions: user can view their own bookings, admin can view any
-    if (req.user.role !== 'admin' && req.user.id !== userId) {
-      return res.status(403).json({
-        success: false,
-        message: 'You can only view your own bookings'
-      });
-    }
     
     const bookings = await bookingQueries.findByUserId(userId);
     

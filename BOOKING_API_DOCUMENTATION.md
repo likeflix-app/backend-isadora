@@ -248,8 +248,7 @@ CREATE TABLE bookings (
 **Authentication:** Required
 
 **Permissions:**
-- Users can view their own bookings
-- Admins can view any user's bookings
+- Any authenticated user can view any user's bookings
 
 **Response (200 OK):**
 ```json
