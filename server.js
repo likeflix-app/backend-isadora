@@ -1016,18 +1016,21 @@ app.post('/api/talent/applications', authenticateToken, async (req, res) => {
     }
     
     // Check if user already has a pending or verified application
-    const existingApplication = await talentQueries.findActiveByUserId(req.user.id);
-    
-    if (existingApplication) {
-      return res.status(409).json({
-        success: false,
-        message: `You already have a ${existingApplication.status} application`,
-        existingApplication: {
-          id: existingApplication.id,
-          status: existingApplication.status,
-          submittedAt: existingApplication.created_at
-        }
-      });
+    // Admins can bypass this restriction to create multiple talents
+    if (req.user.role !== 'admin') {
+      const existingApplication = await talentQueries.findActiveByUserId(req.user.id);
+      
+      if (existingApplication) {
+        return res.status(409).json({
+          success: false,
+          message: `You already have a ${existingApplication.status} application`,
+          existingApplication: {
+            id: existingApplication.id,
+            status: existingApplication.status,
+            submittedAt: existingApplication.created_at
+          }
+        });
+      }
     }
     
     // Create new talent application
