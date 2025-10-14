@@ -25,8 +25,21 @@ async function initializeDatabase() {
         mobile VARCHAR(50),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        email_verified BOOLEAN DEFAULT true
+        email_verified BOOLEAN DEFAULT true,
+        reset_token VARCHAR(255),
+        reset_token_expiry TIMESTAMP
       )
+    `);
+    
+    // Add password reset columns if they don't exist (migration for existing databases)
+    await db.none(`
+      ALTER TABLE users 
+      ADD COLUMN IF NOT EXISTS reset_token VARCHAR(255)
+    `);
+    
+    await db.none(`
+      ALTER TABLE users 
+      ADD COLUMN IF NOT EXISTS reset_token_expiry TIMESTAMP
     `);
     
     // Create talent_applications table
@@ -288,6 +301,48 @@ const userQueries = {
       adminUsers: parseInt(stats.admin_users),
       regularUsers: parseInt(stats.regular_users)
     };
+  },
+  
+  // Save password reset token
+  saveResetToken: async (email, resetToken, expiryDate) => {
+    return await db.one(
+      `UPDATE users 
+       SET reset_token = $1, reset_token_expiry = $2, updated_at = CURRENT_TIMESTAMP 
+       WHERE email = $3 
+       RETURNING id, email, name`,
+      [resetToken, expiryDate, email]
+    );
+  },
+  
+  // Find user by reset token
+  findByResetToken: async (resetToken) => {
+    return await db.oneOrNone(
+      `SELECT * FROM users 
+       WHERE reset_token = $1 AND reset_token_expiry > CURRENT_TIMESTAMP`,
+      [resetToken]
+    );
+  },
+  
+  // Clear reset token
+  clearResetToken: async (userId) => {
+    return await db.one(
+      `UPDATE users 
+       SET reset_token = NULL, reset_token_expiry = NULL, updated_at = CURRENT_TIMESTAMP 
+       WHERE id = $1 
+       RETURNING *`,
+      [userId]
+    );
+  },
+  
+  // Update password
+  updatePassword: async (userId, hashedPassword) => {
+    return await db.one(
+      `UPDATE users 
+       SET password = $1, updated_at = CURRENT_TIMESTAMP 
+       WHERE id = $2 
+       RETURNING *`,
+      [hashedPassword, userId]
+    );
   }
 };
 

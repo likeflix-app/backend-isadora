@@ -6,6 +6,7 @@ const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs-extra');
+const crypto = require('crypto');
 require('dotenv').config();
 
 // Database
@@ -100,6 +101,60 @@ const verifyAdmin = (req, res, next) => {
 
 // Database is now initialized on server start (see bottom of file)
 // All data is persisted in PostgreSQL
+
+// Helper function to send password reset email using EmailJS
+async function sendPasswordResetEmail(email, resetToken, userName) {
+  const resetUrl = `${process.env.FRONTEND_URL}/reset-password?token=${resetToken}`;
+  
+  // Check if EmailJS is configured
+  const emailJsServiceId = process.env.EMAILJS_SERVICE_ID || process.env.VITE_EMAILJS_SERVICE_ID;
+  const emailJsTemplateId = process.env.EMAILJS_TEMPLATE_ID || process.env.VITE_EMAILJS_TEMPLATE_ID;
+  const emailJsPublicKey = process.env.EMAILJS_PUBLIC_KEY || process.env.VITE_EMAILJS_PUBLIC_KEY;
+  
+  if (!emailJsServiceId || !emailJsTemplateId || !emailJsPublicKey) {
+    console.log('⚠️ EmailJS not configured. Reset token:', resetToken);
+    console.log('⚠️ Reset URL:', resetUrl);
+    return false;
+  }
+  
+  try {
+    // EmailJS REST API endpoint
+    const emailJsUrl = 'https://api.emailjs.com/api/v1.0/email/send';
+    
+    const emailData = {
+      service_id: emailJsServiceId,
+      template_id: emailJsTemplateId,
+      user_id: emailJsPublicKey,
+      template_params: {
+        to_email: email,
+        to_name: userName,
+        reset_url: resetUrl,
+        reset_token: resetToken,
+        user_name: userName
+      }
+    };
+    
+    const response = await fetch(emailJsUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(emailData)
+    });
+    
+    if (response.ok) {
+      console.log('✅ Password reset email sent via EmailJS to:', email);
+      return true;
+    } else {
+      const errorText = await response.text();
+      console.error('❌ EmailJS error:', errorText);
+      return false;
+    }
+  } catch (error) {
+    console.error('❌ Error sending email via EmailJS:', error);
+    return false;
+  }
+}
 
 // Routes
 
@@ -338,6 +393,136 @@ app.post('/api/auth/register', async (req, res) => {
       success: false,
       message: 'Registration failed',
       error: error.message
+    });
+  }
+});
+
+// POST /api/auth/forgot-password - Request password reset
+app.post('/api/auth/forgot-password', async (req, res) => {
+  try {
+    const { email } = req.body;
+    
+    console.log('🔐 POST /api/auth/forgot-password - Password reset request for:', email);
+    
+    // Validate email
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email is required'
+      });
+    }
+    
+    // Find user by email
+    const user = await userQueries.findByEmail(email);
+    
+    if (!user) {
+      // For security, don't reveal if user exists or not
+      console.log('⚠️ Password reset requested for non-existent email:', email);
+      return res.json({
+        success: true,
+        message: 'If an account with that email exists, a password reset link has been sent.'
+      });
+    }
+    
+    // Generate reset token
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    
+    // Set expiry to 1 hour from now
+    const expiryDate = new Date(Date.now() + 3600000); // 1 hour
+    
+    // Save reset token to database
+    await userQueries.saveResetToken(email, resetToken, expiryDate);
+    
+    console.log('✅ Reset token generated for:', email);
+    
+    // Send email
+    const emailSent = await sendPasswordResetEmail(email, resetToken, user.name);
+    
+    // If email is not configured, return the token in the response (for development)
+    const emailJsConfigured = process.env.EMAILJS_SERVICE_ID || process.env.VITE_EMAILJS_SERVICE_ID;
+    
+    if (!emailSent && !emailJsConfigured) {
+      return res.json({
+        success: true,
+        message: 'Password reset token generated (email not configured)',
+        resetToken: resetToken, // Only for development!
+        resetUrl: `${process.env.FRONTEND_URL}/reset-password?token=${resetToken}`
+      });
+    }
+    
+    res.json({
+      success: true,
+      message: 'If an account with that email exists, a password reset link has been sent.'
+    });
+    
+  } catch (error) {
+    console.error('❌ POST /api/auth/forgot-password error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error processing password reset request',
+      error: process.env.NODE_ENV === 'production' ? 'Internal server error' : error.message
+    });
+  }
+});
+
+// POST /api/auth/reset-password - Reset password with token
+app.post('/api/auth/reset-password', async (req, res) => {
+  try {
+    const { token, newPassword } = req.body;
+    
+    console.log('🔐 POST /api/auth/reset-password - Resetting password with token');
+    
+    // Validate required fields
+    if (!token || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Token and new password are required'
+      });
+    }
+    
+    // Validate password strength (minimum 6 characters)
+    if (newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must be at least 6 characters long'
+      });
+    }
+    
+    // Find user by reset token
+    const user = await userQueries.findByResetToken(token);
+    
+    if (!user) {
+      console.log('❌ Invalid or expired reset token');
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid or expired reset token'
+      });
+    }
+    
+    console.log('✅ Valid reset token for user:', user.email);
+    
+    // Hash new password
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    
+    // Update password
+    await userQueries.updatePassword(user.id, hashedPassword);
+    
+    // Clear reset token
+    await userQueries.clearResetToken(user.id);
+    
+    console.log('✅ Password reset successful for:', user.email);
+    
+    res.json({
+      success: true,
+      message: 'Password has been reset successfully. You can now login with your new password.'
+    });
+    
+  } catch (error) {
+    console.error('❌ POST /api/auth/reset-password error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error resetting password',
+      error: process.env.NODE_ENV === 'production' ? 'Internal server error' : error.message
     });
   }
 });
@@ -1853,6 +2038,8 @@ async function startServer() {
       console.log('   === Authentication ===');
       console.log('   POST   /api/auth/login - User login');
       console.log('   POST   /api/auth/register - User registration');
+      console.log('   POST   /api/auth/forgot-password - Request password reset');
+      console.log('   POST   /api/auth/reset-password - Reset password with token');
       console.log('   GET    /api/auth/me - Get current user info');
       console.log('   === User Management ===');
       console.log('   GET    /api/users - Get all verified users');
