@@ -2182,6 +2182,7 @@ app.post('/api/premium-packages', verifyAdmin, async (req, res) => {
       talentsData.push({
         id: talent.id,
         fullName: talent.full_name,
+        city: talent.city || '',
         price: talent.price || '',
         socialChannels: typeof talent.social_channels === 'string' ? JSON.parse(talent.social_channels) : talent.social_channels,
         contentCategories: typeof talent.content_categories === 'string' ? JSON.parse(talent.content_categories) : talent.content_categories,
@@ -2337,6 +2338,7 @@ app.patch('/api/premium-packages/:id', verifyAdmin, async (req, res) => {
         talentsData.push({
           id: talent.id,
           fullName: talent.full_name,
+          city: talent.city || '',
           price: talent.price || '',
           socialChannels: typeof talent.social_channels === 'string' ? JSON.parse(talent.social_channels) : talent.social_channels,
           contentCategories: typeof talent.content_categories === 'string' ? JSON.parse(talent.content_categories) : talent.content_categories,

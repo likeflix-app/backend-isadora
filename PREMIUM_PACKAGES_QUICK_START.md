@@ -35,6 +35,7 @@ curl -X POST http://localhost:3001/api/premium-packages \
       {
         "id": "talent-id-1",
         "fullName": "Maria Rossi",
+        "city": "Milano",
         "price": "€€€",
         "socialChannels": ["Instagram", "TikTok"],
         "contentCategories": ["Fashion", "Lifestyle"],
@@ -149,6 +150,7 @@ When you create or update a package with talent IDs, the system automatically:
 ### ✅ Rich Talent Information
 Each package includes:
 - **fullName**: Talent's full name
+- **city**: Talent's city/location
 - **price**: Price tier (€, €€, €€€)
 - **socialChannels**: Array of social platforms
 - **contentCategories**: Array of content types
@@ -183,6 +185,7 @@ function PremiumPackageCard({ packageData }) {
         {packageData.talentsData.map(talent => (
           <div key={talent.id} className="talent-item">
             <h3>{talent.fullName}</h3>
+            <p>City: {talent.city}</p>
             <p>Price: {talent.price}</p>
             
             <div className="social-channels">
@@ -226,6 +229,7 @@ interface PremiumPackage {
 interface TalentData {
   id: string;
   fullName: string;
+  city: string;                  // Talent's city/location
   price: string;                 // "€", "€€", or "€€€"
   socialChannels: string[];      // ["Instagram", "TikTok", etc.]
   contentCategories: string[];   // ["Fashion", "Beauty", etc.]

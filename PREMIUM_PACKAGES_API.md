@@ -47,6 +47,7 @@ The Premium Packages API allows administrators to create, manage, and display cu
     {
       "id": "talent-id-1",
       "fullName": "Maria Rossi",
+      "city": "Milano",
       "price": "€€€",
       "socialChannels": ["Instagram", "TikTok"],
       "contentCategories": ["Fashion", "Lifestyle"],
@@ -55,6 +56,7 @@ The Premium Packages API allows administrators to create, manage, and display cu
     {
       "id": "talent-id-2",
       "fullName": "Luca Bianchi",
+      "city": "Roma",
       "price": "€€",
       "socialChannels": ["Instagram", "YouTube"],
       "contentCategories": ["Fashion", "Beauty"],
@@ -89,6 +91,7 @@ Each talent in `talentsData` contains:
 {
   "id": "talent-id",
   "fullName": "Full Name",
+  "city": "Milano",
   "price": "€€€",
   "socialChannels": ["Instagram", "TikTok", "YouTube"],
   "contentCategories": ["Fashion", "Lifestyle", "Beauty"],
@@ -509,6 +512,7 @@ Content-Type: application/json
       {
         "id": "talent-abc123",
         "fullName": "Emma Bellezza",
+        "city": "Milano",
         "price": "€€€",
         "socialChannels": ["Instagram", "YouTube", "TikTok"],
         "contentCategories": ["Beauty", "Skincare", "Makeup"],
@@ -517,6 +521,7 @@ Content-Type: application/json
       {
         "id": "talent-def456",
         "fullName": "Sofia Glamour",
+        "city": "Roma",
         "price": "€€",
         "socialChannels": ["Instagram", "TikTok"],
         "contentCategories": ["Beauty", "Fashion"],
@@ -525,6 +530,7 @@ Content-Type: application/json
       {
         "id": "talent-ghi789",
         "fullName": "Alessia Style",
+        "city": "Firenze",
         "price": "€€",
         "socialChannels": ["Instagram", "YouTube"],
         "contentCategories": ["Beauty", "Lifestyle"],
