@@ -10,7 +10,7 @@ const crypto = require('crypto');
 require('dotenv').config();
 
 // Database
-const { db, initializeDatabase, userQueries, talentQueries, mediaQueries, bookingQueries, toCamelCase } = require('./db');
+const { db, initializeDatabase, userQueries, talentQueries, mediaQueries, bookingQueries, premiumPackageQueries, toCamelCase } = require('./db');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -2141,6 +2141,303 @@ app.get('/api/bookings/user/:userId', authenticateToken, async (req, res) => {
   }
 });
 
+// ==================== PREMIUM PACKAGES ENDPOINTS ====================
+
+// POST /api/premium-packages - Create new premium package (admin only)
+app.post('/api/premium-packages', verifyAdmin, async (req, res) => {
+  try {
+    const { nomePacchetto, talentIds } = req.body;
+    
+    console.log('📦 POST /api/premium-packages - Creating premium package:', nomePacchetto);
+    
+    // Validate required fields
+    if (!nomePacchetto || !talentIds || !Array.isArray(talentIds) || talentIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'nomePacchetto and talentIds (array) are required'
+      });
+    }
+    
+    // Fetch talent data for each talent ID
+    const talentsData = [];
+    for (const talentId of talentIds) {
+      const talent = await talentQueries.findById(talentId);
+      
+      if (!talent) {
+        return res.status(404).json({
+          success: false,
+          message: `Talent with ID ${talentId} not found`
+        });
+      }
+      
+      // Check if talent is verified
+      if (talent.status !== 'verified') {
+        return res.status(400).json({
+          success: false,
+          message: `Talent ${talent.full_name} is not verified. Only verified talents can be added to premium packages.`
+        });
+      }
+      
+      // Extract required data from talent
+      talentsData.push({
+        id: talent.id,
+        fullName: talent.full_name,
+        price: talent.price || '',
+        socialChannels: typeof talent.social_channels === 'string' ? JSON.parse(talent.social_channels) : talent.social_channels,
+        contentCategories: typeof talent.content_categories === 'string' ? JSON.parse(talent.content_categories) : talent.content_categories,
+        isCelebrity: talent.is_celebrity || false
+      });
+    }
+    
+    // Generate package ID
+    const packageId = 'PKG-' + Date.now();
+    
+    // Create premium package
+    const newPackage = await premiumPackageQueries.create({
+      id: packageId,
+      nomePacchetto,
+      talentIds,
+      talentsData,
+      isActive: true,
+      createdBy: req.user.id
+    });
+    
+    console.log('✅ Premium package created successfully:', newPackage.id);
+    
+    res.status(201).json({
+      success: true,
+      message: 'Premium package created successfully',
+      data: toCamelCase(newPackage)
+    });
+    
+  } catch (error) {
+    console.error('❌ POST /api/premium-packages error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error creating premium package',
+      error: error.message
+    });
+  }
+});
+
+// GET /api/premium-packages - Get all premium packages (public)
+app.get('/api/premium-packages', async (req, res) => {
+  try {
+    const { includeInactive } = req.query;
+    
+    console.log('📦 GET /api/premium-packages - Listing packages');
+    
+    // Get packages (active only by default)
+    const packages = await premiumPackageQueries.getAll(includeInactive !== 'true');
+    
+    console.log('✅ Found', packages.length, 'premium packages');
+    
+    res.json({
+      success: true,
+      data: packages.map(pkg => toCamelCase(pkg)),
+      count: packages.length
+    });
+    
+  } catch (error) {
+    console.error('❌ GET /api/premium-packages error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching premium packages',
+      error: error.message
+    });
+  }
+});
+
+// GET /api/premium-packages/:id - Get specific premium package (public)
+app.get('/api/premium-packages/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    console.log('🔍 GET /api/premium-packages/:id - Getting package:', id);
+    
+    const pkg = await premiumPackageQueries.findById(id);
+    
+    if (!pkg) {
+      return res.status(404).json({
+        success: false,
+        message: 'Premium package not found'
+      });
+    }
+    
+    res.json({
+      success: true,
+      data: toCamelCase(pkg)
+    });
+    
+  } catch (error) {
+    console.error('❌ GET /api/premium-packages/:id error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching premium package',
+      error: error.message
+    });
+  }
+});
+
+// PATCH /api/premium-packages/:id - Update premium package (admin only)
+app.patch('/api/premium-packages/:id', verifyAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { nomePacchetto, talentIds, isActive } = req.body;
+    
+    console.log('🔄 PATCH /api/premium-packages/:id - Updating package:', id);
+    
+    // Check if package exists
+    const existingPackage = await premiumPackageQueries.findById(id);
+    if (!existingPackage) {
+      return res.status(404).json({
+        success: false,
+        message: 'Premium package not found'
+      });
+    }
+    
+    // Build update object
+    const updates = {};
+    
+    if (nomePacchetto !== undefined) {
+      updates.nomePacchetto = nomePacchetto;
+    }
+    
+    if (isActive !== undefined) {
+      updates.isActive = isActive;
+    }
+    
+    // If talentIds are updated, fetch new talent data
+    if (talentIds !== undefined) {
+      if (!Array.isArray(talentIds) || talentIds.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'talentIds must be a non-empty array'
+        });
+      }
+      
+      const talentsData = [];
+      for (const talentId of talentIds) {
+        const talent = await talentQueries.findById(talentId);
+        
+        if (!talent) {
+          return res.status(404).json({
+            success: false,
+            message: `Talent with ID ${talentId} not found`
+          });
+        }
+        
+        if (talent.status !== 'verified') {
+          return res.status(400).json({
+            success: false,
+            message: `Talent ${talent.full_name} is not verified`
+          });
+        }
+        
+        talentsData.push({
+          id: talent.id,
+          fullName: talent.full_name,
+          price: talent.price || '',
+          socialChannels: typeof talent.social_channels === 'string' ? JSON.parse(talent.social_channels) : talent.social_channels,
+          contentCategories: typeof talent.content_categories === 'string' ? JSON.parse(talent.content_categories) : talent.content_categories,
+          isCelebrity: talent.is_celebrity || false
+        });
+      }
+      
+      updates.talentIds = talentIds;
+      updates.talentsData = talentsData;
+    }
+    
+    // Update package
+    const updatedPackage = await premiumPackageQueries.update(id, updates);
+    
+    console.log('✅ Premium package updated successfully:', id);
+    
+    res.json({
+      success: true,
+      message: 'Premium package updated successfully',
+      data: toCamelCase(updatedPackage)
+    });
+    
+  } catch (error) {
+    console.error('❌ PATCH /api/premium-packages/:id error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error updating premium package',
+      error: error.message
+    });
+  }
+});
+
+// DELETE /api/premium-packages/:id - Delete premium package (admin only)
+app.delete('/api/premium-packages/:id', verifyAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { hardDelete } = req.query;
+    
+    console.log('🗑️ DELETE /api/premium-packages/:id - Deleting package:', id);
+    
+    let deletedPackage;
+    
+    if (hardDelete === 'true') {
+      // Hard delete (permanently remove from database)
+      deletedPackage = await premiumPackageQueries.delete(id);
+    } else {
+      // Soft delete (set is_active to false)
+      deletedPackage = await premiumPackageQueries.softDelete(id);
+    }
+    
+    if (!deletedPackage) {
+      return res.status(404).json({
+        success: false,
+        message: 'Premium package not found'
+      });
+    }
+    
+    console.log('✅ Premium package deleted:', id);
+    
+    res.json({
+      success: true,
+      message: hardDelete === 'true' ? 'Premium package permanently deleted' : 'Premium package deactivated',
+      deletedPackage: {
+        id: deletedPackage.id,
+        nomePacchetto: deletedPackage.nome_pacchetto,
+        isActive: deletedPackage.is_active
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ DELETE /api/premium-packages/:id error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error deleting premium package',
+      error: error.message
+    });
+  }
+});
+
+// GET /api/premium-packages/stats - Get premium package statistics (admin only)
+app.get('/api/premium-packages-stats', verifyAdmin, async (req, res) => {
+  try {
+    console.log('📊 GET /api/premium-packages-stats - Getting statistics');
+    
+    const stats = await premiumPackageQueries.getStats();
+    
+    res.json({
+      success: true,
+      data: stats
+    });
+    
+  } catch (error) {
+    console.error('❌ GET /api/premium-packages-stats error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching statistics',
+      error: error.message
+    });
+  }
+});
+
 // Initialize database and start server
 async function startServer() {
   try {
@@ -2192,6 +2489,13 @@ async function startServer() {
       console.log('   GET    /api/bookings/:bookingId - Get specific booking (authenticated)');
       console.log('   PATCH  /api/bookings/:bookingId/status - Update booking status (admin)');
       console.log('   GET    /api/bookings/user/:userId - Get user bookings (authenticated)');
+      console.log('   === Premium Packages ===');
+      console.log('   POST   /api/premium-packages - Create new premium package (admin)');
+      console.log('   GET    /api/premium-packages - Get all premium packages (public)');
+      console.log('   GET    /api/premium-packages/:id - Get specific premium package (public)');
+      console.log('   PATCH  /api/premium-packages/:id - Update premium package (admin)');
+      console.log('   DELETE /api/premium-packages/:id - Delete premium package (admin)');
+      console.log('   GET    /api/premium-packages-stats - Get premium package statistics (admin)');
       console.log('   === System ===');
       console.log('   GET    /api/health - Health check');
     });

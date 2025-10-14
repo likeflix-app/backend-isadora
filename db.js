@@ -157,6 +157,20 @@ async function initializeDatabase() {
       )
     `);
     
+    // Create premium_packages table
+    await db.none(`
+      CREATE TABLE IF NOT EXISTS premium_packages (
+        id VARCHAR(255) PRIMARY KEY,
+        nome_pacchetto VARCHAR(255) NOT NULL,
+        talent_ids JSONB NOT NULL,
+        talents_data JSONB NOT NULL,
+        is_active BOOLEAN DEFAULT true,
+        created_by VARCHAR(255) REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    
     // Migrate existing bookings to new Italian status values
     await db.none(`
       UPDATE bookings 
@@ -182,6 +196,8 @@ async function initializeDatabase() {
     await db.none('CREATE INDEX IF NOT EXISTS idx_bookings_user_id ON bookings(user_id)');
     await db.none('CREATE INDEX IF NOT EXISTS idx_bookings_status ON bookings(status)');
     await db.none('CREATE INDEX IF NOT EXISTS idx_bookings_created_at ON bookings(created_at)');
+    await db.none('CREATE INDEX IF NOT EXISTS idx_premium_packages_is_active ON premium_packages(is_active)');
+    await db.none('CREATE INDEX IF NOT EXISTS idx_premium_packages_created_at ON premium_packages(created_at)');
     
     console.log('✅ Database tables created/verified successfully');
     
@@ -799,6 +815,125 @@ const bookingQueries = {
   }
 };
 
+// Database helper functions for premium packages
+const premiumPackageQueries = {
+  // Create new premium package
+  create: async (packageData) => {
+    const {
+      id, nomePacchetto, talentIds, talentsData, isActive, createdBy
+    } = packageData;
+    
+    console.log('🗄️ Database create - Creating premium package:', id);
+    
+    return await db.one(
+      `INSERT INTO premium_packages(
+        id, nome_pacchetto, talent_ids, talents_data, is_active, created_by,
+        created_at, updated_at
+      ) VALUES(
+        $1, $2, $3, $4, $5, $6,
+        CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+      ) RETURNING *`,
+      [
+        id, nomePacchetto, JSON.stringify(talentIds), JSON.stringify(talentsData), 
+        isActive !== false, createdBy
+      ]
+    );
+  },
+  
+  // Get all premium packages
+  getAll: async (activeOnly = true) => {
+    if (activeOnly) {
+      return await db.any(
+        'SELECT * FROM premium_packages WHERE is_active = true ORDER BY created_at DESC'
+      );
+    }
+    return await db.any('SELECT * FROM premium_packages ORDER BY created_at DESC');
+  },
+  
+  // Find package by ID
+  findById: async (id) => {
+    return await db.oneOrNone('SELECT * FROM premium_packages WHERE id = $1', [id]);
+  },
+  
+  // Update premium package
+  update: async (id, updates) => {
+    const fields = [];
+    const values = [];
+    let paramIndex = 1;
+    
+    // Map camelCase to snake_case for database fields
+    const fieldMapping = {
+      nomePacchetto: 'nome_pacchetto',
+      talentIds: 'talent_ids',
+      talentsData: 'talents_data',
+      isActive: 'is_active'
+    };
+    
+    Object.keys(updates).forEach(key => {
+      const dbField = fieldMapping[key];
+      if (dbField) {
+        let value = updates[key];
+        
+        // Convert arrays/objects to JSON strings for JSONB fields
+        if (['talentIds', 'talentsData'].includes(key)) {
+          value = JSON.stringify(value);
+        }
+        
+        fields.push(`${dbField} = $${paramIndex}`);
+        values.push(value);
+        paramIndex++;
+      }
+    });
+    
+    if (fields.length === 0) {
+      throw new Error('No valid fields to update');
+    }
+    
+    // Always update the updated_at timestamp
+    fields.push(`updated_at = CURRENT_TIMESTAMP`);
+    values.push(id);
+    
+    const query = `UPDATE premium_packages SET ${fields.join(', ')} WHERE id = $${paramIndex} RETURNING *`;
+    return await db.one(query, values);
+  },
+  
+  // Delete premium package (soft delete by setting is_active to false)
+  softDelete: async (id) => {
+    return await db.one(
+      `UPDATE premium_packages 
+       SET is_active = false, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1 RETURNING *`,
+      [id]
+    );
+  },
+  
+  // Hard delete premium package
+  delete: async (id) => {
+    const pkg = await db.oneOrNone('SELECT * FROM premium_packages WHERE id = $1', [id]);
+    if (!pkg) return null;
+    
+    await db.none('DELETE FROM premium_packages WHERE id = $1', [id]);
+    return pkg;
+  },
+  
+  // Get statistics
+  getStats: async () => {
+    const stats = await db.one(`
+      SELECT 
+        COUNT(*) as total_packages,
+        COUNT(CASE WHEN is_active = true THEN 1 END) as active_packages,
+        COUNT(CASE WHEN is_active = false THEN 1 END) as inactive_packages
+      FROM premium_packages
+    `);
+    
+    return {
+      totalPackages: parseInt(stats.total_packages),
+      activePackages: parseInt(stats.active_packages),
+      inactivePackages: parseInt(stats.inactive_packages)
+    };
+  }
+};
+
 // Helper to convert snake_case to camelCase for API responses
 function toCamelCase(obj) {
   if (!obj || typeof obj !== 'object') return obj;
@@ -818,8 +953,8 @@ function toCamelCase(obj) {
       console.log('🔄 toCamelCase - media_kit_urls type:', typeof obj[key]);
     }
     
-    // Parse JSON fields
-    if (typeof obj[key] === 'string' && (key.includes('channels') || key.includes('urls') || key.includes('categories') || key.includes('methods'))) {
+    // Parse JSON fields (including premium package fields)
+    if (typeof obj[key] === 'string' && (key.includes('channels') || key.includes('urls') || key.includes('categories') || key.includes('methods') || key.includes('ids') || key.includes('data'))) {
       try {
         const parsed = JSON.parse(obj[key]);
         console.log('🔄 toCamelCase - Parsed JSON for', key, ':', parsed);
@@ -842,6 +977,7 @@ module.exports = {
   talentQueries,
   mediaQueries,
   bookingQueries,
+  premiumPackageQueries,
   toCamelCase
 };
 
