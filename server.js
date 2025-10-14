@@ -545,7 +545,9 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
         email: user.email,
         name: user.name,
         role: user.role,
-        emailVerified: user.email_verified
+        mobile: user.mobile,
+        emailVerified: user.email_verified,
+        datiDiFatturazione: user.dati_di_fatturazione
       }
     });
   } catch (error) {
@@ -879,6 +881,59 @@ app.patch('/api/users/:userId/mobile', authenticateToken, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to update mobile number',
+      error: error.message
+    });
+  }
+});
+
+// PATCH /api/users/:userId/billing - Update user billing data (user owns or admin)
+app.patch('/api/users/:userId/billing', authenticateToken, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { datiDiFatturazione } = req.body;
+    
+    console.log('🔄 PATCH /api/users/:userId/billing - Updating billing data for user:', userId);
+    
+    // Check permissions: user can update their own, admin can update any
+    if (req.user.role !== 'admin' && req.user.id !== userId) {
+      return res.status(403).json({
+        success: false,
+        message: 'You can only update your own billing data'
+      });
+    }
+    
+    // Validate billing data is provided
+    if (datiDiFatturazione === undefined) {
+      return res.status(400).json({
+        success: false,
+        message: 'Billing data is required'
+      });
+    }
+    
+    // Update user billing data in database
+    const updatedUser = await userQueries.update(userId, { dati_di_fatturazione: datiDiFatturazione });
+    
+    if (!updatedUser) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    
+    console.log('✅ User billing data updated successfully:', updatedUser.email);
+    
+    const { password, ...userWithoutPassword } = updatedUser;
+    
+    res.json({
+      success: true,
+      data: toCamelCase(userWithoutPassword),
+      message: 'Billing data updated successfully'
+    });
+  } catch (error) {
+    console.error('❌ PATCH /api/users/:userId/billing error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update billing data',
       error: error.message
     });
   }
@@ -2110,6 +2165,7 @@ async function startServer() {
       console.log('   POST   /api/users - Create new verified user');
       console.log('   PATCH  /api/users/:userId/role - Update user role (admin only)');
       console.log('   PATCH  /api/users/:userId/mobile - Update user mobile (user owns or admin)');
+      console.log('   PATCH  /api/users/:userId/billing - Update user billing data (user owns or admin)');
       console.log('   DELETE /api/users/:userId - Delete user');
       console.log('   GET    /api/users/stats - Get user statistics');
       console.log('   === File Upload ===');

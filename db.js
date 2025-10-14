@@ -42,6 +42,12 @@ async function initializeDatabase() {
       ADD COLUMN IF NOT EXISTS reset_token_expiry TIMESTAMP
     `);
     
+    // Add billing data column if it doesn't exist
+    await db.none(`
+      ALTER TABLE users 
+      ADD COLUMN IF NOT EXISTS dati_di_fatturazione TEXT
+    `);
+    
     // Create talent_applications table
     await db.none(`
       CREATE TABLE IF NOT EXISTS talent_applications (
