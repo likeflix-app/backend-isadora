@@ -9,7 +9,7 @@ const fs = require('fs-extra');
 require('dotenv').config();
 
 // Database
-const { db, initializeDatabase, userQueries, talentQueries, mediaQueries, toCamelCase } = require('./db');
+const { db, initializeDatabase, userQueries, talentQueries, mediaQueries, bookingQueries, toCamelCase } = require('./db');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -1522,6 +1522,337 @@ app.post('/api/talents/:talentId/track-click', async (req, res) => {
   }
 });
 
+// ==================== BOOKING ENDPOINTS ====================
+
+// POST /api/bookings - Create new booking
+app.post('/api/bookings', authenticateToken, async (req, res) => {
+  try {
+    const {
+      userId,
+      userEmail,
+      userName,
+      phoneNumber,
+      timeSlot,
+      talents,
+      priceRange,
+      userIdea
+    } = req.body;
+    
+    console.log('📅 POST /api/bookings - Creating booking for:', req.user.email);
+    
+    // Validate required fields
+    if (!userId || !userEmail || !userName || !timeSlot || !talents || !priceRange) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields: userId, userEmail, userName, timeSlot, talents, priceRange'
+      });
+    }
+    
+    // Validate timeSlot structure
+    if (!timeSlot.date || !timeSlot.time || !timeSlot.datetime) {
+      return res.status(400).json({
+        success: false,
+        message: 'timeSlot must include date, time, and datetime fields'
+      });
+    }
+    
+    // Validate talents is an array
+    if (!Array.isArray(talents) || talents.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'talents must be a non-empty array'
+      });
+    }
+    
+    // Generate booking ID with BOOK- prefix
+    const bookingId = 'BOOK-' + Date.now();
+    
+    // Create new booking
+    const newBooking = await bookingQueries.create({
+      id: bookingId,
+      userId,
+      userEmail,
+      userName,
+      phoneNumber: phoneNumber || null,
+      timeSlotDate: timeSlot.date,
+      timeSlotTime: timeSlot.time,
+      timeSlotDatetime: timeSlot.datetime,
+      talents,
+      priceRange,
+      userIdea: userIdea || null,
+      status: 'confirmed'
+    });
+    
+    console.log('✅ Booking created successfully:', newBooking.id);
+    
+    // Format response
+    const response = {
+      id: newBooking.id,
+      userId: newBooking.user_id,
+      userEmail: newBooking.user_email,
+      userName: newBooking.user_name,
+      phoneNumber: newBooking.phone_number,
+      timeSlot: {
+        date: newBooking.time_slot_date,
+        time: newBooking.time_slot_time,
+        datetime: newBooking.time_slot_datetime
+      },
+      talents: typeof newBooking.talents === 'string' ? JSON.parse(newBooking.talents) : newBooking.talents,
+      priceRange: newBooking.price_range,
+      userIdea: newBooking.user_idea,
+      status: newBooking.status,
+      createdAt: newBooking.created_at,
+      updatedAt: newBooking.updated_at
+    };
+    
+    res.status(201).json({
+      success: true,
+      data: response
+    });
+    
+  } catch (error) {
+    console.error('❌ POST /api/bookings error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error creating booking',
+      error: error.message
+    });
+  }
+});
+
+// GET /api/bookings - Get all bookings (admin only)
+app.get('/api/bookings', verifyAdmin, async (req, res) => {
+  try {
+    const { status } = req.query;
+    
+    console.log('📋 GET /api/bookings - Listing bookings (filter:', status || 'all', ')');
+    
+    // Get bookings with optional status filter
+    const bookings = await bookingQueries.getAll(status);
+    
+    // Get stats
+    const stats = await bookingQueries.getStats();
+    
+    console.log('✅ Found', bookings.length, 'bookings');
+    
+    // Format bookings for response
+    const formattedBookings = bookings.map(booking => ({
+      id: booking.id,
+      userId: booking.user_id,
+      userEmail: booking.user_email,
+      userName: booking.user_name,
+      phoneNumber: booking.phone_number,
+      timeSlot: {
+        date: booking.time_slot_date,
+        time: booking.time_slot_time,
+        datetime: booking.time_slot_datetime
+      },
+      talents: typeof booking.talents === 'string' ? JSON.parse(booking.talents) : booking.talents,
+      priceRange: booking.price_range,
+      userIdea: booking.user_idea,
+      status: booking.status,
+      createdAt: booking.created_at,
+      updatedAt: booking.updated_at
+    }));
+    
+    res.json({
+      success: true,
+      data: formattedBookings,
+      count: formattedBookings.length,
+      stats: {
+        total: stats.totalBookings,
+        pending: stats.pending,
+        confirmed: stats.confirmed,
+        completed: stats.completed,
+        cancelled: stats.cancelled
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ GET /api/bookings error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching bookings',
+      error: error.message
+    });
+  }
+});
+
+// GET /api/bookings/:bookingId - Get specific booking
+app.get('/api/bookings/:bookingId', authenticateToken, async (req, res) => {
+  try {
+    const { bookingId } = req.params;
+    
+    console.log('🔍 GET /api/bookings/:bookingId - Getting booking:', bookingId);
+    
+    const booking = await bookingQueries.findById(bookingId);
+    
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: 'Booking not found'
+      });
+    }
+    
+    // Check permissions: user can view their own bookings, admin can view any
+    if (req.user.role !== 'admin' && booking.user_id !== req.user.id) {
+      return res.status(403).json({
+        success: false,
+        message: 'You can only view your own bookings'
+      });
+    }
+    
+    // Format response
+    const response = {
+      id: booking.id,
+      userId: booking.user_id,
+      userEmail: booking.user_email,
+      userName: booking.user_name,
+      phoneNumber: booking.phone_number,
+      timeSlot: {
+        date: booking.time_slot_date,
+        time: booking.time_slot_time,
+        datetime: booking.time_slot_datetime
+      },
+      talents: typeof booking.talents === 'string' ? JSON.parse(booking.talents) : booking.talents,
+      priceRange: booking.price_range,
+      userIdea: booking.user_idea,
+      status: booking.status,
+      createdAt: booking.created_at,
+      updatedAt: booking.updated_at
+    };
+    
+    res.json({
+      success: true,
+      data: response
+    });
+    
+  } catch (error) {
+    console.error('❌ GET /api/bookings/:bookingId error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching booking',
+      error: error.message
+    });
+  }
+});
+
+// PATCH /api/bookings/:bookingId/status - Update booking status (admin only)
+app.patch('/api/bookings/:bookingId/status', verifyAdmin, async (req, res) => {
+  try {
+    const { bookingId } = req.params;
+    const { status } = req.body;
+    
+    console.log('🔄 PATCH /api/bookings/:bookingId/status - Updating booking:', bookingId, 'to:', status);
+    
+    // Validate status
+    if (!['pending', 'confirmed', 'completed', 'cancelled'].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid status. Must be one of: pending, confirmed, completed, cancelled'
+      });
+    }
+    
+    const updatedBooking = await bookingQueries.updateStatus(bookingId, status);
+    
+    if (!updatedBooking) {
+      return res.status(404).json({
+        success: false,
+        message: 'Booking not found'
+      });
+    }
+    
+    console.log('✅ Booking status updated:', updatedBooking.id, '->', status);
+    
+    // Format response
+    const response = {
+      id: updatedBooking.id,
+      userId: updatedBooking.user_id,
+      userEmail: updatedBooking.user_email,
+      userName: updatedBooking.user_name,
+      phoneNumber: updatedBooking.phone_number,
+      timeSlot: {
+        date: updatedBooking.time_slot_date,
+        time: updatedBooking.time_slot_time,
+        datetime: updatedBooking.time_slot_datetime
+      },
+      talents: typeof updatedBooking.talents === 'string' ? JSON.parse(updatedBooking.talents) : updatedBooking.talents,
+      priceRange: updatedBooking.price_range,
+      userIdea: updatedBooking.user_idea,
+      status: updatedBooking.status,
+      createdAt: updatedBooking.created_at,
+      updatedAt: updatedBooking.updated_at
+    };
+    
+    res.json({
+      success: true,
+      message: `Booking status updated to ${status}`,
+      data: response
+    });
+    
+  } catch (error) {
+    console.error('❌ PATCH /api/bookings/:bookingId/status error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error updating booking status',
+      error: error.message
+    });
+  }
+});
+
+// GET /api/bookings/user/:userId - Get user's bookings (authenticated user or admin)
+app.get('/api/bookings/user/:userId', authenticateToken, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    console.log('👤 GET /api/bookings/user/:userId - Getting bookings for user:', userId);
+    
+    // Check permissions: user can view their own bookings, admin can view any
+    if (req.user.role !== 'admin' && req.user.id !== userId) {
+      return res.status(403).json({
+        success: false,
+        message: 'You can only view your own bookings'
+      });
+    }
+    
+    const bookings = await bookingQueries.findByUserId(userId);
+    
+    // Format bookings for response
+    const formattedBookings = bookings.map(booking => ({
+      id: booking.id,
+      userId: booking.user_id,
+      userEmail: booking.user_email,
+      userName: booking.user_name,
+      phoneNumber: booking.phone_number,
+      timeSlot: {
+        date: booking.time_slot_date,
+        time: booking.time_slot_time,
+        datetime: booking.time_slot_datetime
+      },
+      talents: typeof booking.talents === 'string' ? JSON.parse(booking.talents) : booking.talents,
+      priceRange: booking.price_range,
+      userIdea: booking.user_idea,
+      status: booking.status,
+      createdAt: booking.created_at,
+      updatedAt: booking.updated_at
+    }));
+    
+    res.json({
+      success: true,
+      data: formattedBookings,
+      count: formattedBookings.length
+    });
+    
+  } catch (error) {
+    console.error('❌ GET /api/bookings/user/:userId error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching user bookings',
+      error: error.message
+    });
+  }
+});
+
 // Initialize database and start server
 async function startServer() {
   try {
@@ -1563,6 +1894,12 @@ async function startServer() {
       console.log('   GET    /api/talents - Get all verified talents (public)');
       console.log('   PATCH  /api/talents/:talentId/celebrity-status - Toggle celebrity status (admin)');
       console.log('   POST   /api/talents/:talentId/track-click - Track talent click (public)');
+      console.log('   === Bookings ===');
+      console.log('   POST   /api/bookings - Create new booking (authenticated)');
+      console.log('   GET    /api/bookings - Get all bookings (admin)');
+      console.log('   GET    /api/bookings/:bookingId - Get specific booking (authenticated)');
+      console.log('   PATCH  /api/bookings/:bookingId/status - Update booking status (admin)');
+      console.log('   GET    /api/bookings/user/:userId - Get user bookings (authenticated)');
       console.log('   === System ===');
       console.log('   GET    /api/health - Health check');
     });

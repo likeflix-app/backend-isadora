@@ -118,6 +118,26 @@ async function initializeDatabase() {
       )
     `);
     
+    // Create bookings table
+    await db.none(`
+      CREATE TABLE IF NOT EXISTS bookings (
+        id VARCHAR(255) PRIMARY KEY,
+        user_id VARCHAR(255) NOT NULL,
+        user_email VARCHAR(255) NOT NULL,
+        user_name VARCHAR(255) NOT NULL,
+        phone_number VARCHAR(255),
+        time_slot_date VARCHAR(255) NOT NULL,
+        time_slot_time VARCHAR(255) NOT NULL,
+        time_slot_datetime TIMESTAMP NOT NULL,
+        talents JSONB NOT NULL,
+        price_range VARCHAR(50) NOT NULL,
+        user_idea TEXT,
+        status VARCHAR(50) DEFAULT 'confirmed',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    
     // Create indexes for better performance
     await db.none('CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)');
     await db.none('CREATE INDEX IF NOT EXISTS idx_users_role ON users(role)');
@@ -127,6 +147,9 @@ async function initializeDatabase() {
     await db.none('CREATE INDEX IF NOT EXISTS idx_media_talent ON media_uploads(talent_id)');
     await db.none('CREATE INDEX IF NOT EXISTS idx_media_cloudinary_id ON media_uploads(cloudinary_public_id)');
     await db.none('CREATE INDEX IF NOT EXISTS idx_media_created_at ON media_uploads(created_at)');
+    await db.none('CREATE INDEX IF NOT EXISTS idx_bookings_user_id ON bookings(user_id)');
+    await db.none('CREATE INDEX IF NOT EXISTS idx_bookings_status ON bookings(status)');
+    await db.none('CREATE INDEX IF NOT EXISTS idx_bookings_created_at ON bookings(created_at)');
     
     console.log('✅ Database tables created/verified successfully');
     
@@ -559,6 +582,149 @@ const mediaQueries = {
   }
 };
 
+// Database helper functions for bookings
+const bookingQueries = {
+  // Create new booking
+  create: async (bookingData) => {
+    const {
+      id, userId, userEmail, userName, phoneNumber,
+      timeSlotDate, timeSlotTime, timeSlotDatetime,
+      talents, priceRange, userIdea, status
+    } = bookingData;
+    
+    console.log('🗄️ Database create - Creating booking:', id);
+    
+    return await db.one(
+      `INSERT INTO bookings(
+        id, user_id, user_email, user_name, phone_number,
+        time_slot_date, time_slot_time, time_slot_datetime,
+        talents, price_range, user_idea, status,
+        created_at, updated_at
+      ) VALUES(
+        $1, $2, $3, $4, $5,
+        $6, $7, $8,
+        $9, $10, $11, $12,
+        CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+      ) RETURNING *`,
+      [
+        id, userId, userEmail, userName, phoneNumber || null,
+        timeSlotDate, timeSlotTime, timeSlotDatetime,
+        JSON.stringify(talents), priceRange, userIdea || null, status || 'confirmed'
+      ]
+    );
+  },
+  
+  // Get all bookings
+  getAll: async (statusFilter = null) => {
+    if (statusFilter) {
+      return await db.any(
+        'SELECT * FROM bookings WHERE status = $1 ORDER BY created_at DESC',
+        [statusFilter]
+      );
+    }
+    return await db.any('SELECT * FROM bookings ORDER BY created_at DESC');
+  },
+  
+  // Find booking by ID
+  findById: async (id) => {
+    return await db.oneOrNone('SELECT * FROM bookings WHERE id = $1', [id]);
+  },
+  
+  // Find bookings by user ID
+  findByUserId: async (userId) => {
+    return await db.any(
+      'SELECT * FROM bookings WHERE user_id = $1 ORDER BY created_at DESC',
+      [userId]
+    );
+  },
+  
+  // Update booking status
+  updateStatus: async (id, status) => {
+    return await db.one(
+      `UPDATE bookings 
+       SET status = $1, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2 RETURNING *`,
+      [status, id]
+    );
+  },
+  
+  // Update booking
+  update: async (id, updates) => {
+    const fields = [];
+    const values = [];
+    let paramIndex = 1;
+    
+    // Map camelCase to snake_case for database fields
+    const fieldMapping = {
+      phoneNumber: 'phone_number',
+      timeSlotDate: 'time_slot_date',
+      timeSlotTime: 'time_slot_time',
+      timeSlotDatetime: 'time_slot_datetime',
+      talents: 'talents',
+      priceRange: 'price_range',
+      userIdea: 'user_idea',
+      status: 'status'
+    };
+    
+    Object.keys(updates).forEach(key => {
+      const dbField = fieldMapping[key];
+      if (dbField) {
+        let value = updates[key];
+        
+        // Convert talents array to JSON string for JSONB field
+        if (key === 'talents') {
+          value = JSON.stringify(value);
+        }
+        
+        fields.push(`${dbField} = $${paramIndex}`);
+        values.push(value);
+        paramIndex++;
+      }
+    });
+    
+    if (fields.length === 0) {
+      throw new Error('No valid fields to update');
+    }
+    
+    // Always update the updated_at timestamp
+    fields.push(`updated_at = CURRENT_TIMESTAMP`);
+    values.push(id);
+    
+    const query = `UPDATE bookings SET ${fields.join(', ')} WHERE id = $${paramIndex} RETURNING *`;
+    return await db.one(query, values);
+  },
+  
+  // Delete booking
+  delete: async (id) => {
+    const booking = await db.oneOrNone('SELECT * FROM bookings WHERE id = $1', [id]);
+    if (!booking) return null;
+    
+    await db.none('DELETE FROM bookings WHERE id = $1', [id]);
+    return booking;
+  },
+  
+  // Get statistics
+  getStats: async () => {
+    const stats = await db.one(`
+      SELECT 
+        COUNT(*) as total_bookings,
+        COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending,
+        COUNT(CASE WHEN status = 'confirmed' THEN 1 END) as confirmed,
+        COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed,
+        COUNT(CASE WHEN status = 'cancelled' THEN 1 END) as cancelled
+      FROM bookings
+    `);
+    
+    return {
+      totalBookings: parseInt(stats.total_bookings),
+      pending: parseInt(stats.pending),
+      confirmed: parseInt(stats.confirmed),
+      completed: parseInt(stats.completed),
+      cancelled: parseInt(stats.cancelled)
+    };
+  }
+};
+
 // Helper to convert snake_case to camelCase for API responses
 function toCamelCase(obj) {
   if (!obj || typeof obj !== 'object') return obj;
@@ -601,6 +767,7 @@ module.exports = {
   userQueries,
   talentQueries,
   mediaQueries,
+  bookingQueries,
   toCamelCase
 };
 
