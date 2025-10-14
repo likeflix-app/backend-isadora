@@ -156,8 +156,7 @@ CREATE TABLE bookings (
 **Authentication:** Required
 
 **Permissions:** 
-- Users can view their own bookings
-- Admins can view any booking
+- Any authenticated user can view any booking
 
 **Response (200 OK):**
 ```json
@@ -186,7 +185,6 @@ CREATE TABLE bookings (
 
 **Error Responses:**
 - `404 Not Found` - Booking doesn't exist
-- `403 Forbidden` - User trying to access another user's booking
 
 ---
 
@@ -292,7 +290,7 @@ Authorization: Bearer {jwt_token}
 Tokens are generated via the `/api/auth/login` endpoint.
 
 ### User Roles
-- **user** - Can create and view their own bookings
+- **user** - Can create bookings and view any user's bookings
 - **admin** - Can view all bookings and update booking statuses
 
 ---

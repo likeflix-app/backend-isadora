@@ -1694,14 +1694,6 @@ app.get('/api/bookings/:bookingId', authenticateToken, async (req, res) => {
       });
     }
     
-    // Check permissions: user can view their own bookings, admin can view any
-    if (req.user.role !== 'admin' && booking.user_id !== req.user.id) {
-      return res.status(403).json({
-        success: false,
-        message: 'You can only view your own bookings'
-      });
-    }
-    
     // Format response
     const response = {
       id: booking.id,
