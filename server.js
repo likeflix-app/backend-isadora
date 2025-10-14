@@ -43,7 +43,7 @@ const storage = multer.memoryStorage();
 const upload = multer({
   storage: storage,
   limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB limit
+    fileSize: 100 * 1024 * 1024, // 100MB limit
     files: 10 // Max 10 files per request
   }
 });
@@ -744,7 +744,7 @@ app.post('/api/upload/media-kit',
               folder: 'talent-media-kits',
               public_id: publicId,
               resource_type: 'auto',
-              allowed_formats: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf']
+              allowed_formats: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf', 'mp4', 'mov', 'avi', 'wmv', 'flv', 'webm', 'mkv', 'm4v', 'mpeg', 'mpg']
             }
           );
           
