@@ -284,6 +284,70 @@ Invalid Token (403):
 
 ---
 
+### 6. Update User Mobile
+
+**PATCH** `/api/users/:userId/mobile`
+
+**Authentication:** Required (Bearer token)
+
+**Authorization:** User can update their own mobile, or admin can update any user's mobile
+
+**Headers:**
+```
+Authorization: Bearer {jwt_token}
+```
+
+**Request Body:**
+```json
+{
+  "mobile": "+39 123 456 7890"
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "success": true,
+  "message": "Mobile number updated successfully",
+  "data": {
+    "id": "user-uuid",
+    "email": "user@example.com",
+    "name": "John Doe",
+    "role": "user",
+    "mobile": "+39 123 456 7890",
+    "emailVerified": true
+  }
+}
+```
+
+**Error Responses:**
+
+Missing Mobile (400):
+```json
+{
+  "success": false,
+  "message": "Mobile number is required"
+}
+```
+
+Unauthorized - Not Your Account (403):
+```json
+{
+  "success": false,
+  "message": "You can only update your own mobile number"
+}
+```
+
+User Not Found (404):
+```json
+{
+  "success": false,
+  "message": "User not found"
+}
+```
+
+---
+
 ## Password Recovery Flow
 
 ### Complete Flow Diagram
@@ -495,6 +559,14 @@ curl -X POST http://localhost:3001/api/auth/reset-password \
 ```bash
 curl -X GET http://localhost:3001/api/auth/me \
   -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+**Update User Mobile:**
+```bash
+curl -X PATCH http://localhost:3001/api/users/USER_ID/mobile \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"mobile":"+39 123 456 7890"}'
 ```
 
 ---

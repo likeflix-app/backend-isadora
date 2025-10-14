@@ -786,8 +786,8 @@ app.post('/api/users', async (req, res) => {
   }
 });
 
-// PATCH /api/users/:userId/role - Update user role
-app.patch('/api/users/:userId/role', async (req, res) => {
+// PATCH /api/users/:userId/role - Update user role (admin only)
+app.patch('/api/users/:userId/role', authenticateToken, verifyAdmin, async (req, res) => {
   try {
     const { userId } = req.params;
     const { role } = req.body;
@@ -826,6 +826,59 @@ app.patch('/api/users/:userId/role', async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to update user role',
+      error: error.message
+    });
+  }
+});
+
+// PATCH /api/users/:userId/mobile - Update user mobile (user owns or admin)
+app.patch('/api/users/:userId/mobile', authenticateToken, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { mobile } = req.body;
+    
+    console.log('🔄 PATCH /api/users/:userId/mobile - Updating mobile for user:', userId);
+    
+    // Check permissions: user can update their own, admin can update any
+    if (req.user.role !== 'admin' && req.user.id !== userId) {
+      return res.status(403).json({
+        success: false,
+        message: 'You can only update your own mobile number'
+      });
+    }
+    
+    // Validate mobile is provided
+    if (mobile === undefined) {
+      return res.status(400).json({
+        success: false,
+        message: 'Mobile number is required'
+      });
+    }
+    
+    // Update user mobile in database
+    const updatedUser = await userQueries.update(userId, { mobile });
+    
+    if (!updatedUser) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    
+    console.log('✅ User mobile updated successfully:', updatedUser.email);
+    
+    const { password, ...userWithoutPassword } = updatedUser;
+    
+    res.json({
+      success: true,
+      data: toCamelCase(userWithoutPassword),
+      message: 'Mobile number updated successfully'
+    });
+  } catch (error) {
+    console.error('❌ PATCH /api/users/:userId/mobile error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update mobile number',
       error: error.message
     });
   }
@@ -2055,7 +2108,8 @@ async function startServer() {
       console.log('   === User Management ===');
       console.log('   GET    /api/users - Get all verified users');
       console.log('   POST   /api/users - Create new verified user');
-      console.log('   PATCH  /api/users/:userId/role - Update user role');
+      console.log('   PATCH  /api/users/:userId/role - Update user role (admin only)');
+      console.log('   PATCH  /api/users/:userId/mobile - Update user mobile (user owns or admin)');
       console.log('   DELETE /api/users/:userId - Delete user');
       console.log('   GET    /api/users/stats - Get user statistics');
       console.log('   === File Upload ===');

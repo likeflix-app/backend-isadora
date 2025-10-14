@@ -74,7 +74,8 @@ Two demo users are created automatically:
 ### User Management
 - `GET /api/users` - Get all verified users
 - `POST /api/users` - Create new verified user
-- `PATCH /api/users/:userId/role` - Update user role
+- `PATCH /api/users/:userId/role` - Update user role (admin only)
+- `PATCH /api/users/:userId/mobile` - Update user mobile (user owns or admin)
 - `DELETE /api/users/:userId` - Delete user
 - `GET /api/users/stats` - Get user statistics
 
