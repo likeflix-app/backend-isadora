@@ -462,6 +462,8 @@ async function getPremiumPackageStats(adminToken) {
 
 ## 🎨 Complete React Components
 
+> **📸 Note**: Each talent in a package includes `mediaKitUrl` - the first media kit photo/video URL from Cloudinary. Display it as an image or video thumbnail!
+
 ### Display Premium Packages List
 
 ```javascript
@@ -509,6 +511,13 @@ function PremiumPackageCard({ package: pkg }) {
       <div className="talents-grid">
         {pkg.talentsData.map(talent => (
           <div key={talent.id} className="talent-item">
+            {talent.mediaKitUrl && (
+              <img 
+                src={talent.mediaKitUrl} 
+                alt={talent.fullName}
+                className="talent-photo"
+              />
+            )}
             <h3>{talent.fullName}</h3>
             <p>📍 {talent.city}</p>
             <p>💰 {talent.price}</p>

@@ -37,6 +37,7 @@ curl -X POST http://localhost:3001/api/premium-packages \
         "fullName": "Maria Rossi",
         "city": "Milano",
         "price": "€€€",
+        "mediaKitUrl": "https://res.cloudinary.com/djecxub3z/image/upload/v1234567890/talent-media-kits/maria.jpg",
         "socialChannels": ["Instagram", "TikTok"],
         "contentCategories": ["Fashion", "Lifestyle"],
         "isCelebrity": true
@@ -152,6 +153,7 @@ Each package includes:
 - **fullName**: Talent's full name
 - **city**: Talent's city/location
 - **price**: Price tier (€, €€, €€€)
+- **mediaKitUrl**: First media kit photo/video URL (from Cloudinary)
 - **socialChannels**: Array of social platforms
 - **contentCategories**: Array of content types
 - **isCelebrity**: Celebrity status
@@ -184,6 +186,9 @@ function PremiumPackageCard({ packageData }) {
       <div className="talents-grid">
         {packageData.talentsData.map(talent => (
           <div key={talent.id} className="talent-item">
+            {talent.mediaKitUrl && (
+              <img src={talent.mediaKitUrl} alt={talent.fullName} />
+            )}
             <h3>{talent.fullName}</h3>
             <p>City: {talent.city}</p>
             <p>Price: {talent.price}</p>
@@ -231,6 +236,7 @@ interface TalentData {
   fullName: string;
   city: string;                  // Talent's city/location
   price: string;                 // "€", "€€", or "€€€"
+  mediaKitUrl: string;           // First media kit photo/video URL
   socialChannels: string[];      // ["Instagram", "TikTok", etc.]
   contentCategories: string[];   // ["Fashion", "Beauty", etc.]
   isCelebrity: boolean;

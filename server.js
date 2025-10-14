@@ -2179,11 +2179,15 @@ app.post('/api/premium-packages', verifyAdmin, async (req, res) => {
       }
       
       // Extract required data from talent
+      const mediaKitUrls = typeof talent.media_kit_urls === 'string' ? JSON.parse(talent.media_kit_urls) : talent.media_kit_urls;
+      const firstMediaKitUrl = Array.isArray(mediaKitUrls) && mediaKitUrls.length > 0 ? mediaKitUrls[0] : '';
+      
       talentsData.push({
         id: talent.id,
         fullName: talent.full_name,
         city: talent.city || '',
         price: talent.price || '',
+        mediaKitUrl: firstMediaKitUrl,
         socialChannels: typeof talent.social_channels === 'string' ? JSON.parse(talent.social_channels) : talent.social_channels,
         contentCategories: typeof talent.content_categories === 'string' ? JSON.parse(talent.content_categories) : talent.content_categories,
         isCelebrity: talent.is_celebrity || false
@@ -2335,11 +2339,15 @@ app.patch('/api/premium-packages/:id', verifyAdmin, async (req, res) => {
           });
         }
         
+        const mediaKitUrls = typeof talent.media_kit_urls === 'string' ? JSON.parse(talent.media_kit_urls) : talent.media_kit_urls;
+        const firstMediaKitUrl = Array.isArray(mediaKitUrls) && mediaKitUrls.length > 0 ? mediaKitUrls[0] : '';
+        
         talentsData.push({
           id: talent.id,
           fullName: talent.full_name,
           city: talent.city || '',
           price: talent.price || '',
+          mediaKitUrl: firstMediaKitUrl,
           socialChannels: typeof talent.social_channels === 'string' ? JSON.parse(talent.social_channels) : talent.social_channels,
           contentCategories: typeof talent.content_categories === 'string' ? JSON.parse(talent.content_categories) : talent.content_categories,
           isCelebrity: talent.is_celebrity || false

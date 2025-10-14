@@ -49,6 +49,7 @@ The Premium Packages API allows administrators to create, manage, and display cu
       "fullName": "Maria Rossi",
       "city": "Milano",
       "price": "€€€",
+      "mediaKitUrl": "https://res.cloudinary.com/djecxub3z/image/upload/v1234567890/talent-media-kits/photo1.jpg",
       "socialChannels": ["Instagram", "TikTok"],
       "contentCategories": ["Fashion", "Lifestyle"],
       "isCelebrity": true
@@ -58,6 +59,7 @@ The Premium Packages API allows administrators to create, manage, and display cu
       "fullName": "Luca Bianchi",
       "city": "Roma",
       "price": "€€",
+      "mediaKitUrl": "https://res.cloudinary.com/djecxub3z/image/upload/v1234567890/talent-media-kits/photo2.jpg",
       "socialChannels": ["Instagram", "YouTube"],
       "contentCategories": ["Fashion", "Beauty"],
       "isCelebrity": false
@@ -93,6 +95,7 @@ Each talent in `talentsData` contains:
   "fullName": "Full Name",
   "city": "Milano",
   "price": "€€€",
+  "mediaKitUrl": "https://res.cloudinary.com/djecxub3z/image/upload/v1234567890/talent-media-kits/photo.jpg",
   "socialChannels": ["Instagram", "TikTok", "YouTube"],
   "contentCategories": ["Fashion", "Lifestyle", "Beauty"],
   "isCelebrity": true
@@ -514,6 +517,7 @@ Content-Type: application/json
         "fullName": "Emma Bellezza",
         "city": "Milano",
         "price": "€€€",
+        "mediaKitUrl": "https://res.cloudinary.com/djecxub3z/image/upload/v1234567890/talent-media-kits/emma.jpg",
         "socialChannels": ["Instagram", "YouTube", "TikTok"],
         "contentCategories": ["Beauty", "Skincare", "Makeup"],
         "isCelebrity": true
@@ -523,6 +527,7 @@ Content-Type: application/json
         "fullName": "Sofia Glamour",
         "city": "Roma",
         "price": "€€",
+        "mediaKitUrl": "https://res.cloudinary.com/djecxub3z/image/upload/v1234567890/talent-media-kits/sofia.jpg",
         "socialChannels": ["Instagram", "TikTok"],
         "contentCategories": ["Beauty", "Fashion"],
         "isCelebrity": false
@@ -532,6 +537,7 @@ Content-Type: application/json
         "fullName": "Alessia Style",
         "city": "Firenze",
         "price": "€€",
+        "mediaKitUrl": "https://res.cloudinary.com/djecxub3z/image/upload/v1234567890/talent-media-kits/alessia.jpg",
         "socialChannels": ["Instagram", "YouTube"],
         "contentCategories": ["Beauty", "Lifestyle"],
         "isCelebrity": false
