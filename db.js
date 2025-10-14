@@ -145,10 +145,23 @@ async function initializeDatabase() {
         talents JSONB NOT NULL,
         price_range VARCHAR(50) NOT NULL,
         user_idea TEXT,
-        status VARCHAR(50) DEFAULT 'confirmed',
+        status VARCHAR(50) DEFAULT 'in attesa di conferma',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
+    `);
+    
+    // Migrate existing bookings to new Italian status values
+    await db.none(`
+      UPDATE bookings 
+      SET status = CASE 
+        WHEN status = 'pending' THEN 'in attesa di conferma'
+        WHEN status = 'confirmed' THEN 'confermata'
+        WHEN status = 'completed' THEN 'fatta'
+        WHEN status = 'cancelled' THEN 'cancellata'
+        ELSE 'in attesa di conferma'
+      END
+      WHERE status IN ('pending', 'confirmed', 'completed', 'cancelled')
     `);
     
     // Create indexes for better performance
@@ -664,7 +677,7 @@ const bookingQueries = {
       [
         id, userId, userEmail, userName, phoneNumber || null,
         timeSlotDate, timeSlotTime, timeSlotDatetime,
-        JSON.stringify(talents), priceRange, userIdea || null, status || 'confirmed'
+        JSON.stringify(talents), priceRange, userIdea || null, status || 'in attesa di conferma'
       ]
     );
   },
@@ -763,19 +776,19 @@ const bookingQueries = {
     const stats = await db.one(`
       SELECT 
         COUNT(*) as total_bookings,
-        COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending,
-        COUNT(CASE WHEN status = 'confirmed' THEN 1 END) as confirmed,
-        COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed,
-        COUNT(CASE WHEN status = 'cancelled' THEN 1 END) as cancelled
+        COUNT(CASE WHEN status = 'in attesa di conferma' THEN 1 END) as in_attesa,
+        COUNT(CASE WHEN status = 'confermata' THEN 1 END) as confermata,
+        COUNT(CASE WHEN status = 'fatta' THEN 1 END) as fatta,
+        COUNT(CASE WHEN status = 'cancellata' THEN 1 END) as cancellata
       FROM bookings
     `);
     
     return {
       totalBookings: parseInt(stats.total_bookings),
-      pending: parseInt(stats.pending),
-      confirmed: parseInt(stats.confirmed),
-      completed: parseInt(stats.completed),
-      cancelled: parseInt(stats.cancelled)
+      inAttesaDiConferma: parseInt(stats.in_attesa),
+      confermata: parseInt(stats.confermata),
+      fatta: parseInt(stats.fatta),
+      cancellata: parseInt(stats.cancellata)
     };
   }
 };

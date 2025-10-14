@@ -1720,7 +1720,8 @@ app.post('/api/bookings', authenticateToken, async (req, res) => {
       timeSlot,
       talents,
       priceRange,
-      userIdea
+      userIdea,
+      status
     } = req.body;
     
     console.log('📅 POST /api/bookings - Creating booking for:', req.user.email);
@@ -1749,6 +1750,15 @@ app.post('/api/bookings', authenticateToken, async (req, res) => {
       });
     }
     
+    // Validate status if provided
+    const validStatuses = ['in attesa di conferma', 'confermata', 'fatta', 'cancellata'];
+    if (status && !validStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid status. Must be one of: in attesa di conferma, confermata, fatta, cancellata'
+      });
+    }
+    
     // Generate booking ID with BOOK- prefix
     const bookingId = 'BOOK-' + Date.now();
     
@@ -1765,7 +1775,7 @@ app.post('/api/bookings', authenticateToken, async (req, res) => {
       talents,
       priceRange,
       userIdea: userIdea || null,
-      status: 'confirmed'
+      status: status || 'in attesa di conferma'
     });
     
     console.log('✅ Booking created successfully:', newBooking.id);
@@ -1846,10 +1856,10 @@ app.get('/api/bookings', verifyAdmin, async (req, res) => {
       count: formattedBookings.length,
       stats: {
         total: stats.totalBookings,
-        pending: stats.pending,
-        confirmed: stats.confirmed,
-        completed: stats.completed,
-        cancelled: stats.cancelled
+        inAttesaDiConferma: stats.inAttesaDiConferma,
+        confermata: stats.confermata,
+        fatta: stats.fatta,
+        cancellata: stats.cancellata
       }
     });
     
@@ -1923,10 +1933,11 @@ app.patch('/api/bookings/:bookingId/status', verifyAdmin, async (req, res) => {
     console.log('🔄 PATCH /api/bookings/:bookingId/status - Updating booking:', bookingId, 'to:', status);
     
     // Validate status
-    if (!['pending', 'confirmed', 'completed', 'cancelled'].includes(status)) {
+    const validStatuses = ['in attesa di conferma', 'confermata', 'fatta', 'cancellata'];
+    if (!validStatuses.includes(status)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid status. Must be one of: pending, confirmed, completed, cancelled'
+        message: 'Invalid status. Must be one of: in attesa di conferma, confermata, fatta, cancellata'
       });
     }
     

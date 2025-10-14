@@ -6,22 +6,28 @@
 
 ```sql
 CREATE TABLE bookings (
-  id VARCHAR(255) PRIMARY KEY,              -- Format: BOOK-{timestamp}
+  id VARCHAR(255) PRIMARY KEY,                        -- Format: BOOK-{timestamp}
   user_id VARCHAR(255) NOT NULL,
   user_email VARCHAR(255) NOT NULL,
   user_name VARCHAR(255) NOT NULL,
   phone_number VARCHAR(255),
-  time_slot_date VARCHAR(255) NOT NULL,     -- e.g., "martedì 14 ottobre"
-  time_slot_time VARCHAR(255) NOT NULL,     -- e.g., "10:00"
-  time_slot_datetime TIMESTAMP NOT NULL,    -- ISO datetime string
-  talents JSONB NOT NULL,                   -- Array of talent objects
-  price_range VARCHAR(50) NOT NULL,         -- e.g., "€€€", "€€€€"
-  user_idea TEXT,                           -- Personal note from user
-  status VARCHAR(50) DEFAULT 'confirmed',   -- pending/confirmed/completed/cancelled
+  time_slot_date VARCHAR(255) NOT NULL,               -- e.g., "martedì 14 ottobre"
+  time_slot_time VARCHAR(255) NOT NULL,               -- e.g., "10:00"
+  time_slot_datetime TIMESTAMP NOT NULL,              -- ISO datetime string
+  talents JSONB NOT NULL,                             -- Array of talent objects
+  price_range VARCHAR(50) NOT NULL,                   -- e.g., "€€€", "€€€€"
+  user_idea TEXT,                                     -- Personal note from user
+  status VARCHAR(50) DEFAULT 'in attesa di conferma', -- Status values (Italian)
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 ```
+
+**Status Values:**
+- `in attesa di conferma` - Waiting for confirmation (default)
+- `confermata` - Confirmed
+- `fatta` - Completed/Done
+- `cancellata` - Cancelled
 
 **Indexes:**
 - `idx_bookings_user_id` - For fast user lookup
@@ -59,9 +65,12 @@ CREATE TABLE bookings (
     }
   ],
   "priceRange": "€€€",
-  "userIdea": "Voglio creare una collezione di abiti per il prossimo anno"
+  "userIdea": "Voglio creare una collezione di abiti per il prossimo anno",
+  "status": "in attesa di conferma"
 }
 ```
+
+**Note:** The `status` field is optional. If not provided, it defaults to `"in attesa di conferma"`.
 
 **Response (201 Created):**
 ```json
@@ -88,7 +97,7 @@ CREATE TABLE bookings (
     ],
     "priceRange": "€€€",
     "userIdea": "Voglio creare una collezione di abiti per il prossimo anno",
-    "status": "confirmed",
+    "status": "in attesa di conferma",
     "createdAt": "2024-10-07T10:00:00.000Z",
     "updatedAt": "2024-10-07T10:00:00.000Z"
   }
@@ -99,6 +108,7 @@ CREATE TABLE bookings (
 - All fields marked as required must be present
 - `timeSlot` must include `date`, `time`, and `datetime`
 - `talents` must be a non-empty array
+- `status` (optional) must be one of: `in attesa di conferma`, `confermata`, `fatta`, `cancellata`
 - User must be authenticated
 
 ---
@@ -131,7 +141,7 @@ CREATE TABLE bookings (
       "talents": [...],
       "priceRange": "€€€",
       "userIdea": "...",
-      "status": "confirmed",
+      "status": "confermata",
       "createdAt": "2024-10-07T10:00:00.000Z",
       "updatedAt": "2024-10-07T10:00:00.000Z"
     }
@@ -139,10 +149,10 @@ CREATE TABLE bookings (
   "count": 1,
   "stats": {
     "total": 10,
-    "pending": 2,
-    "confirmed": 5,
-    "completed": 2,
-    "cancelled": 1
+    "inAttesaDiConferma": 2,
+    "confermata": 5,
+    "fatta": 2,
+    "cancellata": 1
   }
 }
 ```
@@ -176,7 +186,7 @@ CREATE TABLE bookings (
     "talents": [...],
     "priceRange": "€€€",
     "userIdea": "...",
-    "status": "confirmed",
+    "status": "in attesa di conferma",
     "createdAt": "2024-10-07T10:00:00.000Z",
     "updatedAt": "2024-10-07T10:00:00.000Z"
   }
@@ -197,21 +207,21 @@ CREATE TABLE bookings (
 **Request Body:**
 ```json
 {
-  "status": "completed"
+  "status": "fatta"
 }
 ```
 
 **Valid Status Values:**
-- `pending`
-- `confirmed`
-- `completed`
-- `cancelled`
+- `in attesa di conferma` - Waiting for confirmation
+- `confermata` - Confirmed
+- `fatta` - Completed/Done
+- `cancellata` - Cancelled
 
 **Response (200 OK):**
 ```json
 {
   "success": true,
-  "message": "Booking status updated to completed",
+  "message": "Booking status updated to fatta",
   "data": {
     "id": "BOOK-1234567890",
     "userId": "user123",
@@ -226,7 +236,7 @@ CREATE TABLE bookings (
     "talents": [...],
     "priceRange": "€€€",
     "userIdea": "...",
-    "status": "completed",
+    "status": "fatta",
     "createdAt": "2024-10-07T10:00:00.000Z",
     "updatedAt": "2024-10-07T12:30:00.000Z"
   }
@@ -267,7 +277,7 @@ CREATE TABLE bookings (
       "talents": [...],
       "priceRange": "€€€",
       "userIdea": "...",
-      "status": "confirmed",
+      "status": "confermata",
       "createdAt": "2024-10-07T10:00:00.000Z",
       "updatedAt": "2024-10-07T10:00:00.000Z"
     }
@@ -426,5 +436,8 @@ bookingQueries.getStats()
 - The `updated_at` field is automatically updated on every modification
 - Phone number is optional
 - User idea/note is optional
-- Default status is `confirmed` when creating a new booking
+- Status field is optional when creating a booking
+- Default status is `in attesa di conferma` (waiting for confirmation) when creating a new booking
+- All status values are in Italian: `in attesa di conferma`, `confermata`, `fatta`, `cancellata`
+- Existing bookings are automatically migrated to use Italian status values on server restart
 
