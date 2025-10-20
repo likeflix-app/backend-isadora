@@ -20,7 +20,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-producti
 app.use(cors({
   origin: [
     process.env.FRONTEND_URL,
-    'https://isadoracomunication.com',
+    'https://isadoratalent.com',
     'https://frontend-isadora.onrender.com',
     'http://localhost:8084',
     'http://localhost:8083'

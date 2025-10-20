@@ -807,7 +807,7 @@ If you get CORS errors, make sure your backend includes your frontend URL in the
 app.use(cors({
   origin: [
     process.env.FRONTEND_URL,
-    'https://isadoracomunication.com',
+    'https://isadoratalent.com',
     'https://frontend-isadora.onrender.com',
     'http://localhost:8084',
     'http://localhost:8083'
